@@ -590,53 +590,67 @@ export default function Dashboard() {
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
               {/* BAR CHART: Tasks per Project */}
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="tasks" stackId="a" fill="hsl(var(--chart-1))" name="Total Tasks" />
-                  <Bar dataKey="completed" stackId="a" fill="hsl(var(--chart-2))" name="Completed Tasks" />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="flex flex-col items-center w-full">
+                <h3 className="text-sm font-semibold mb-2">Tasks</h3>
+
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={barData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="tasks" stackId="a" fill="hsl(var(--chart-1))" name="Total Tasks" />
+                    <Bar dataKey="completed" stackId="a" fill="hsl(var(--chart-2))" name="Completed Tasks" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
 
               {/* PIE CHART: Key Steps Completion */}
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    dataKey="value"
-                    label={({ name, value }) => {
-                      const percent = keySteps.length === 0 ? 0 : ((value / keySteps.length) * 100).toFixed(0);
-                      return `${name}: ${value} (${percent}%)`;
-                    }}
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell
-                        key={index}
-                        fill={entry.color}
-                        stroke="#fff"
-                        strokeWidth={2}
-                      />
-                    ))}
-                  </Pie>
+              <div className="flex flex-col items-center w-full">
+                <h3 className="text-sm font-semibold mb-2">Key Steps</h3>
 
-                  <Legend
-                    verticalAlign="bottom"
-                    align="center"
-                    iconType="circle"
-                    formatter={(value, entry: any) => {
-                      const percent = keySteps.length === 0 ? 0 : ((entry.payload.value / keySteps.length) * 100).toFixed(0);
-                      return `${value}: ${percent}%`;
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={90}
+                      dataKey="value"
+                      label={({ name, value }) => {
+                        const percent =
+                          keySteps.length === 0
+                            ? 0
+                            : ((value / keySteps.length) * 100).toFixed(0);
+                        return `${name}: ${value} (${percent}%)`;
+                      }}
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell
+                          key={index}
+                          fill={entry.color}
+                          stroke="#fff"
+                          strokeWidth={2}
+                        />
+                      ))}
+                    </Pie>
+
+                    <Legend
+                      verticalAlign="bottom"
+                      align="center"
+                      iconType="circle"
+                      formatter={(value, entry: any) => {
+                        const percent =
+                          keySteps.length === 0
+                            ? 0
+                            : ((entry.payload.value / keySteps.length) * 100).toFixed(0);
+                        return `${value}: ${percent}%`;
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </CardContent>
         )}
