@@ -9,22 +9,30 @@ import {
   jsonb,
   date,
   uuid,
+  bigint,
 } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 /* ===============================
-    USERS & EMPLOYEES
+   USERS
 ================================ */
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  // Link to employee record (optional)
+  employeeId: uuid("employee_id").references(() => employees.id),
+  // Role: 'ADMIN' or 'EMPLOYEE'
+  role: text("role").default("EMPLOYEE"),
 });
 
+/* ===============================
+   EMPLOYEES
+================================ */
 export const employees = pgTable("employees", {
   id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
   empCode: text("emp_code").unique(),
+  name: text("name").notNull(),
   designation: text("designation"),
   email: text("email"),
   phone: text("phone"),
@@ -32,95 +40,152 @@ export const employees = pgTable("employees", {
 });
 
 /* ===============================
-    PROJECTS
+   PROJECTS  ✅ NEON DATABASE
 ================================ */
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
+
   title: text("title").notNull(),
+  projectCode: text("project_code").notNull(),
+
   description: text("description"),
+
+  clientName: text("client_name"),
+
   status: text("status").notNull().default("open"),
-  progress: integer("progress").default(0),
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
+  progress: integer("progress").notNull().default(0),
 
-  assignerId: uuid("assigner_id"), // ✅ ADD THIS
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
 
-  vendors: jsonb("vendors").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 /* ===============================
-    KEY STEPS
+   PROJECT DEPARTMENTS
+================================ */
+export const projectDepartments = pgTable("project_departments", {
+  projectId: uuid("project_id").notNull(),
+  department: text("department").notNull(),
+});
+
+/* ===============================
+   PROJECT TEAM MEMBERS
+================================ */
+export const projectTeamMembers = pgTable("project_team_members", {
+  projectId: uuid("project_id").notNull(),
+  employeeId: uuid("employee_id").notNull(),
+});
+
+/* ===============================
+   PROJECT VENDORS
+================================ */
+export const projectVendors = pgTable("project_vendors", {
+  projectId: uuid("project_id").notNull(),
+  vendorName: text("vendor_name").notNull(),
+});
+
+/* ===============================
+   KEY STEPS (with nesting support)
 ================================ */
 export const keySteps = pgTable("key_steps", {
   id: uuid("id").defaultRandom().primaryKey(),
   projectId: uuid("project_id").notNull(),
+  parentKeyStepId: uuid("parent_key_step_id"), // For nested key steps
+
   header: varchar("header", { length: 255 }),
   title: varchar("title", { length: 255 }).notNull(),
+
   description: text("description"),
   requirements: text("requirements"),
+
   phase: integer("phase").notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  status: varchar("status", { length: 20 }).default("pending"),
+
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 /* ===============================
-    PROJECT TASKS (Core Table)
+   PROJECT TASKS
 ================================ */
 export const projectTasks = pgTable("project_tasks", {
   id: uuid("id").defaultRandom().primaryKey(),
+
   projectId: uuid("project_id").notNull(),
-  keyStepId: uuid("key_step_id"), // Optional link to a specific phase
+  keyStepId: uuid("key_step_id"),
+
   taskName: text("task_name").notNull(),
   description: text("description"),
+
   status: text("status").default("pending"),
   priority: text("priority").default("medium"),
+
   startDate: date("start_date"),
   endDate: date("end_date"),
-  assignerId: uuid("assigner_id").notNull(), // The person creating the task
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+
+  assignerId: uuid("assigner_id").notNull(),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 /* ===============================
-    TASK MEMBERS (Many-to-Many Assignees)
+   TASK MEMBERS
 ================================ */
 export const taskMembers = pgTable("task_members", {
-  id: uuid("id").defaultRandom().primaryKey(),
   taskId: uuid("task_id").notNull(),
   employeeId: uuid("employee_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 /* ===============================
-    SUBTASKS
+   SUBTASKS
 ================================ */
 export const subtasks = pgTable("subtasks", {
   id: uuid("id").defaultRandom().primaryKey(),
-  taskId: uuid("task_id").notNull(), // Parent project task
+  taskId: uuid("task_id").notNull().references(() => projectTasks.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   isCompleted: boolean("is_completed").default(false),
-  assignedTo: uuid("assigned_to"), // Single employee assigned to this specific subtask
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
-
-/* ===============================
-    PROJECT FILES & VENDORS
-================================ */
-export const projectFiles = pgTable("project_files", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  projectId: uuid("project_id").notNull(),
-  fileName: text("file_name").notNull(),
-  filePath: text("file_path").notNull(),
-  fileUrl: text("file_url"),
-  fileSize: integer("file_size"),
-  uploadedBy: uuid("uploaded_by"),
+  assignedTo: uuid("assigned_to").references(() => employees.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/* ===============================
+   PROJECT FILES  ✅ NEON
+================================ */
+export const projectFiles = pgTable("project_files", {
+  id: uuid("id").defaultRandom().primaryKey(),
+
+  projectId: uuid("project_id").notNull(),
+
+  fileName: text("file_name").notNull(),
+  fileSize: bigint("file_size", { mode: "number" }).notNull(),
+  mimeType: text("mime_type"),
+  storageUrl: text("storage_url"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/* ===============================
+   SESSIONS (server-side tokens)
+================================ */
+export const sessions = pgTable("sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  token: text("token").notNull().unique(),
+  userId: uuid("user_id").references(() => users.id),
+  employeeId: uuid("employee_id").references(() => employees.id),
+  empCode: text("emp_code"),
+  role: text("role"),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at"),
+});
+
+/* ===============================
+   VENDORS
+================================ */
 export const vendors = pgTable("vendors", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
@@ -131,27 +196,29 @@ export const vendors = pgTable("vendors", {
 });
 
 /* ===============================
-    ZOD VALIDATION SCHEMAS
+   ZOD SCHEMAS
 ================================ */
-export const insertUserSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1),
-});
-
-export const insertProjectTaskSchema = z.object({
-  projectId: z.string().uuid(),
-  keyStepId: z.string().uuid().optional(),
-  taskName: z.string().min(1),
+export const insertProjectSchema = z.object({
+  title: z.string().min(1),
+  projectCode: z.string().optional(),
+  department: z.array(z.string()).optional(),
   description: z.string().optional(),
-  priority: z.string().default("medium"),
-  status: z.string().default("pending"),
+
+  clientName: z.string().optional(), // ✅ REQUIRED FOR UI
+
+  status: z.string().optional(),
+  progress: z.number().optional(),
+
   startDate: z.string().optional(),
   endDate: z.string().optional(),
-  assignerId: z.string().uuid(),
+
+  assignerId: z.string().uuid().optional(),
+
+  vendors: z.array(z.string()).optional(),
 });
 
 /* ===============================
-    TYPES
+   TYPES
 ================================ */
 export type User = typeof users.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
@@ -162,3 +229,4 @@ export type TaskMember = typeof taskMembers.$inferSelect;
 export type Subtask = typeof subtasks.$inferSelect;
 export type ProjectFile = typeof projectFiles.$inferSelect;
 export type Vendor = typeof vendors.$inferSelect;
+export type Session = typeof sessions.$inferSelect;

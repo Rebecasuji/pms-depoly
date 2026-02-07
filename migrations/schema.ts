@@ -43,6 +43,7 @@ export const projectVendors = pgTable("project_vendors", {
 export const keySteps = pgTable("key_steps", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	projectId: uuid("project_id").notNull(),
+	parentKeyStepId: uuid("parent_key_step_id"),
 	header: text(),
 	title: text().notNull(),
 	description: text(),

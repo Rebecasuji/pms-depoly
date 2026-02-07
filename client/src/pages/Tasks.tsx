@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Trash2,
@@ -13,6 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -20,9 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -37,15 +36,16 @@ interface Subtask {
   id?: string;
   title: string;
   isCompleted: boolean;
-  assignedTo?: string;
+  assignedTo: string[]; // array of employee IDs
 }
 
 interface Task {
   id: string;
   projectId: string;
+  keyStepId?: string;
   taskName: string;
   description?: string;
-  status: "pending" | "in-progress" | "completed";
+  status: string;
   priority: "low" | "medium" | "high";
   startDate?: string;
   endDate?: string;
@@ -57,96 +57,79 @@ interface Task {
 /* ================= COMPONENT ================= */
 
 export default function Tasks() {
+  const navigate = useNavigate();
   const [employees, setEmployees] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [milestones, setMilestones] = useState<any[]>([]);
 
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [projectId, setProjectId] = useState("");
 
-  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
-  const [form, setForm] = useState({
-    projectId: "",
-    taskName: "",
-    description: "",
-    startDate: "",
-    endDate: "",
-    status: "pending" as "pending" | "in-progress" | "completed",
-    priority: "medium" as "low" | "medium" | "high",
-    assignerId: "",
-    taskMembers: [] as string[],
-  });
-
-  /* ================= LOAD EMPLOYEES & PROJECTS ================= */
+  /* ================= LOAD INITIAL DATA ================= */
 
   useEffect(() => {
-    fetch("/api/employees").then(r => r.json()).then(setEmployees);
-    fetch("/api/projects")
+    fetch("/api/employees")
+      .then(r => r.json())
+      .then(data => setEmployees(Array.isArray(data) ? data : []))
+      .catch(() => setEmployees([]));
+
+    fetch("/api/projects", { headers: { Authorization: `Bearer ${localStorage.getItem("knockturn_token")}` } })
       .then(r => r.json())
       .then(data => {
-        setProjects(data);
-        if (data.length > 0) {
-          setForm(f => ({ ...f, projectId: data[0].id }));
+        const arr = Array.isArray(data) ? data : [];
+        setProjects(arr);
+        if (arr.length > 0 && !projectId) {
+          setProjectId(arr[0].id);
         }
-      });
+      })
+      .catch(() => setProjects([]));
   }, []);
 
-  /* ================= LOAD TASKS ================= */
+  /* ================= LOAD PROJECT-SPECIFIC DATA ================= */
 
   useEffect(() => {
-    if (!form.projectId) return;
-    fetch(`/api/tasks/${form.projectId}`)
+    if (!projectId) return;
+
+    // Load Tasks
+    fetch(`/api/tasks/${projectId}`)
       .then(r => r.json())
-      .then(setTasks);
-  }, [form.projectId]);
+      .then(data => setTasks(Array.isArray(data) ? data : []))
+      .catch(() => setTasks([]));
+
+    const loadMilestones = async () => {
+      if (!projectId) return;
+      try {
+        const data = await fetch(`/api/projects/${projectId}/key-steps`).then(r => r.json());
+        setMilestones(Array.isArray(data) ? data : []);
+      } catch {
+        setMilestones([]);
+      }
+    };
+
+    // Load Milestones (Key Steps)
+    fetch(`/api/projects/${projectId}/key-steps`)
+      .then(r => r.json())
+      .then(data => setMilestones(Array.isArray(data) ? data : []))
+      .catch(() => setMilestones([]));
+  }, [projectId]);
 
   /* ================= HELPERS ================= */
 
-  const resetForm = () => {
-    setForm({
-      projectId: form.projectId,
-      taskName: "",
-      description: "",
-      startDate: "",
-      endDate: "",
-      status: "pending",
-      priority: "medium",
-      assignerId: "",
-      taskMembers: [],
-    });
-    setSubtasks([]);
-  };
-
   const openAdd = () => {
-    setEditingTask(null);
-    resetForm();
-    setOpenDialog(true);
+    navigate(`/add-task?projectId=${projectId}`);
   };
 
   const openEdit = (task: Task) => {
-    setEditingTask(task);
-    setForm({
-      projectId: task.projectId,
-      taskName: task.taskName,
-      description: task.description || "",
-      startDate: task.startDate || "",
-      endDate: task.endDate || "",
-      status: task.status,
-      priority: task.priority,
-      assignerId: task.assignerId,
-      taskMembers: task.taskMembers || [],
-    });
-    setSubtasks(task.subtasks || []);
-    setOpenDialog(true);
+    navigate(`/add-task?id=${task.id}&projectId=${task.projectId}`);
   };
 
   const toggleExpand = (id: string) => {
-    setExpandedTasks(p =>
-      p.includes(id) ? p.filter(x => x !== id) : [...p, id]
-    );
+    setExpandedTasks(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   };
 
   const getPriorityColor = (priority: string) => {
@@ -157,65 +140,34 @@ export default function Tasks() {
     }
   };
 
-  /* ================= SAVE (ADD / EDIT) ================= */
+  /* ================= API ACTIONS ================= */
 
-  const handleSave = async () => {
-    if (!form.taskName || !form.projectId || !form.assignerId) {
-      alert("Task Name, Project, and Assigner required");
-      return;
-    }
-
-    const payload = { ...form, subtasks };
-
+  const confirmDelete = async () => {
+    if (!taskToDelete) return;
     try {
-      if (editingTask) {
-        await fetch(`/api/tasks/${editingTask.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-      } else {
-        await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-      }
-
-      const updated = await fetch(`/api/tasks/${form.projectId}`).then(r => r.json());
-      setTasks(updated);
-
-      setOpenDialog(false);
-      setEditingTask(null);
-      resetForm();
-    } catch (err) {
-      alert("Save failed");
-    }
-  };
-
-  /* ================= DELETE ================= */
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this task?")) return;
-
-    try {
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-      const updated = await fetch(`/api/tasks/${form.projectId}`).then(r => r.json());
-      setTasks(updated);
+      await fetch(`/api/tasks/${taskToDelete.id}`, { method: "DELETE" });
+      const updated = await fetch(`/api/tasks/${projectId}`).then(r => r.json());
+      setTasks(Array.isArray(updated) ? updated : []);
+      setOpenDeleteDialog(false);
+      setTaskToDelete(null);
     } catch (err) {
       alert("Delete failed");
     }
   };
 
-  /* ================= UI ================= */
+  const askDelete = (task: Task) => {
+    setTaskToDelete(task);
+    setOpenDeleteDialog(true);
+  };
+
+  /* ================= SUBTASK HANDLERS ================= */
 
   const filteredTasks = tasks.filter(t =>
-    t.taskName.toLowerCase().includes(searchQuery.toLowerCase())
+    (t.taskName || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div className="space-y-6 p-6 bg-slate-50 min-h-screen">
-
       {/* HEADER */}
       <div className="flex justify-between items-center">
         <div>
@@ -224,28 +176,31 @@ export default function Tasks() {
         </div>
 
         <div className="flex gap-4">
+          <div className="flex items-center">
+            <span className="text-sm font-semibold mr-3">Project</span>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger className="w-56 bg-white">
+                <SelectValue placeholder="Select Project" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px] overflow-y-auto">
+                {projects.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          {/* PROJECT */}
-          <Select value={form.projectId} onValueChange={v => setForm(f => ({ ...f, projectId: v }))}>
-            <SelectTrigger className="w-56 bg-white">
-              <SelectValue placeholder="Select Project" />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map(p => (
-                <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* SEARCH */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              className="pl-9 w-56 bg-white"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
+          <div className="flex items-center">
+            <span className="text-sm font-semibold mr-3">Tasks</span>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                className="pl-9 w-56 bg-white"
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
 
           <Button onClick={openAdd}>
@@ -254,187 +209,100 @@ export default function Tasks() {
         </div>
       </div>
 
-      {/* TABLE */}
+      {/* MAIN TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
-
         <div className="grid grid-cols-12 bg-slate-100 border-b text-[10px] font-bold p-4 uppercase text-slate-500">
           <div className="col-span-3">Task</div>
           <div className="col-span-2">Project</div>
+          <div className="col-span-2">Milestone</div>
           <div className="col-span-1 text-center">Assigner</div>
           <div className="col-span-2 text-center">Due</div>
-          <div className="col-span-2 text-center">Priority</div>
           <div className="col-span-1 text-center">Status</div>
           <div className="col-span-1 text-right">Actions</div>
         </div>
 
         {filteredTasks.length === 0 && (
-          <div className="p-12 text-center text-slate-500">
-            No tasks found
-          </div>
+          <div className="p-12 text-center text-slate-500">No tasks found</div>
         )}
 
         {filteredTasks.map(task => (
           <div key={task.id} className="border-b hover:bg-slate-50">
-
             <div className="grid grid-cols-12 items-center p-4 text-xs">
-
               <div className="col-span-3 flex items-center gap-2">
                 <button onClick={() => toggleExpand(task.id)}>
-                  {expandedTasks.includes(task.id)
-                    ? <ChevronDown size={16} />
-                    : <ChevronRight size={16} />}
+                  {expandedTasks.includes(task.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
-                <span className={task.status === "completed" ? "line-through opacity-50" : ""}>
+                <span className={task.status === "Completed" ? "line-through opacity-50" : ""}>
                   {task.taskName}
                 </span>
               </div>
-
               <div className="col-span-2 text-slate-500">
-                {projects.find(p => p.id === task.projectId)?.title}
+                {projects.find(p => p.id === task.projectId)?.title || "Unknown"}
               </div>
-
+              <div className="col-span-2 text-slate-500 italic">
+                {task.keyStepId && task.keyStepId !== "none"
+                  ? milestones.find(m => m.id === task.keyStepId)?.title || "Linked"
+                  : "—"}
+              </div>
               <div className="col-span-1 text-center">
                 {employees.find(e => e.id === task.assignerId)?.name || "—"}
               </div>
-
               <div className="col-span-2 text-center text-slate-500 flex justify-center gap-1">
                 <Calendar size={14} /> {task.endDate || "N/A"}
               </div>
-
-              <div className="col-span-2 text-center">
-                <Badge variant="outline" className={getPriorityColor(task.priority)}>
-                  {task.priority}
-                </Badge>
-              </div>
-
               <div className="col-span-1 text-center">
-                <Badge variant={task.status === "completed" ? "default" : "outline"}>
+                <Badge variant={task.status === "Completed" ? "default" : "outline"}>
                   {task.status}
                 </Badge>
               </div>
-
               <div className="col-span-1 text-right flex justify-end gap-1">
-                <Button size="icon" variant="ghost" onClick={() => openEdit(task)}>
-                  <Edit size={14} />
-                </Button>
-                <Button size="icon" variant="ghost" className="text-red-500" onClick={() => handleDelete(task.id)}>
-                  <Trash2 size={14} />
-                </Button>
+                <Button size="icon" variant="ghost" onClick={() => openEdit(task)}><Edit size={14} /></Button>
+                <Button size="icon" variant="ghost" className="text-red-500" onClick={() => askDelete(task)}><Trash2 size={14} /></Button>
               </div>
             </div>
 
+            {/* EXPANDED VIEW */}
             {expandedTasks.includes(task.id) && (
-              <div className="bg-slate-50 px-8 pb-4">
-                <p className="text-xs text-slate-600 mb-2">{task.description || "No description"}</p>
-
-                {task.subtasks?.map((s, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs bg-white p-2 rounded border mb-1">
-                    {s.isCompleted
-                      ? <CheckCircle2 size={14} className="text-green-500" />
-                      : <Circle size={14} />}
-                    {s.title}
-                  </div>
-                ))}
+              <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700">Description</h4>
+                  <p className="text-xs text-slate-600">{task.description || "No description"}</p>
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 mb-2">Subtasks</h4>
+                  {task.subtasks?.map((s, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 text-xs p-2 border-b">
+                      <div className="col-span-1 text-center">
+                        {s.isCompleted ? <CheckCircle2 size={14} className="text-green-500 mx-auto" /> : <Circle size={14} className="mx-auto" />}
+                      </div>
+                      <div className="col-span-7">{s.title}</div>
+                      <div className="col-span-4 flex gap-1 flex-wrap">
+                        {s.assignedTo?.map(id => (
+                          <Badge key={id} variant="outline" className="text-[10px]">
+                            {employees.find(e => e.id === id)?.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
-
           </div>
         ))}
-
       </div>
 
-      {/* MODAL */}
-      <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{editingTask ? "Edit Task" : "Add Task"}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Project</Label>
-                <Select value={form.projectId} onValueChange={v => setForm(f => ({ ...f, projectId: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {projects.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Assigner</Label>
-                <Select value={form.assignerId} onValueChange={v => setForm(f => ({ ...f, assignerId: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label>Task Name</Label>
-              <Input value={form.taskName} onChange={e => setForm(f => ({ ...f, taskName: e.target.value }))} />
-            </div>
-
-            <div>
-              <Label>Description</Label>
-              <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Start</Label>
-                <Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
-              </div>
-              <div>
-                <Label>End</Label>
-                <Input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Status</Label>
-                <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as any }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in-progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Priority</Label>
-                <Select value={form.priority} onValueChange={v => setForm(f => ({ ...f, priority: v as any }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-          </div>
-
+      {/* DELETE DIALOG */}
+      <Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete Task</DialogTitle></DialogHeader>
+          <p className="text-sm">Delete <span className="font-bold">{taskToDelete?.taskName}</span>?</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button onClick={handleSave}>{editingTask ? "Save Changes" : "Add Task"}</Button>
+            <Button variant="outline" onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
           </DialogFooter>
-
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

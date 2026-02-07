@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { apiFetch } from "@/lib/apiClient";
 import {
   CheckCircle2,
   Layers,
@@ -73,7 +74,7 @@ export default function Dashboard() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch("/api/projects");
+      const res = await apiFetch("/api/projects");
       if (!res.ok) throw new Error("Failed to fetch projects");
       const data = await res.json();
       setProjects(data);
@@ -99,7 +100,7 @@ export default function Dashboard() {
       const allTasks: any[] = [];
 
       for (const project of projectsList) {
-        const res = await fetch(`/api/tasks/${project.id}`);
+        const res = await apiFetch(`/api/tasks/${project.id}`);
         if (!res.ok) continue;
         const data = await res.json();
         if (Array.isArray(data)) allTasks.push(...data);
@@ -119,7 +120,7 @@ export default function Dashboard() {
       const allSteps: any[] = [];
 
       for (const project of projectsList) {
-        const res = await fetch(`/api/projects/${project.id}/key-steps`);
+        const res = await apiFetch(`/api/projects/${project.id}/key-steps`);
         if (!res.ok) continue;
         const data = await res.json();
         if (Array.isArray(data)) allSteps.push(...data);
@@ -145,11 +146,18 @@ export default function Dashboard() {
     if (!newProject.title || !newProject.startDate || !newProject.endDate) return;
 
     try {
-      const response = await fetch("/api/projects", {
+      // Auto-generate project code from title (e.g., "My Project" -> "MYPROJECT")
+      const autoProjectCode = newProject.title
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .substring(0, 20) || "PROJECT";
+
+      const response = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: newProject.title,
+          projectCode: autoProjectCode,
           description: newProject.description,
           startDate: newProject.startDate,
           endDate: newProject.endDate,

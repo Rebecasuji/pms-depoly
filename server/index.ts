@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
-import { pool } from "./db";
+import { pool, checkDatabaseConnection } from "./db.ts";
 
 const app = express();
 const httpServer = createServer(app);
@@ -73,8 +73,22 @@ app.use((req, res, next) => {
 /* ===============================
    BOOTSTRAP
 ================================ */
-(async () => {
+async function bootstrap() {
   /* ---------- DB HEALTH CHECK ---------- */
+  console.log("📍 Starting database health check...");
+  const isConnected = await checkDatabaseConnection();
+
+  if (!isConnected) {
+    console.warn(
+      "⚠️  Warning: Database connection failed. Server will start but API calls may fail."
+    );
+    console.log(
+      "💡 Please check your DATABASE_URL in .env and verify Neon is accessible."
+    );
+  } else {
+    console.log("✨ Database is ready for queries.");
+  }
+
   app.get("/db-test", async (_req, res) => {
     try {
       await pool.query("SELECT 1");
@@ -103,24 +117,30 @@ app.use((req, res, next) => {
 
   /* ---------- FRONTEND (VITE / STATIC) ---------- */
   if (process.env.NODE_ENV === "production") {
-    // Serve static production build
     serveStatic(app);
   } else {
-    // In dev, ensure /api routes are skipped by Vite
     const { setupVite } = await import("./vite");
 
-    app.use((req, res, next) => {
-      if (req.path.startsWith("/api")) return next(); // skip Vite
+    app.use((req, _res, next) => {
+      if (req.path.startsWith("/api")) return next();
       next();
     });
 
     await setupVite(httpServer, app);
   }
 
-  /* ---------- START SERVER ---------- */
+  /* ---------- START SERVER (ONE PORT ONLY) ---------- */
   const PORT = Number(process.env.PORT) || 5000;
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    log(`Server running at http://0.0.0.0:${PORT}`);
+    log(`Server running at http://localhost:${PORT}`);
   });
-})();
+}
+
+/* ===============================
+   START
+================================ */
+bootstrap().catch((err) => {
+  console.error("❌ Failed to start server:", err);
+  process.exit(1);
+});

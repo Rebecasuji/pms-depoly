@@ -18,7 +18,11 @@ import Reports from "@/pages/Reports";
 import CalendarEnhanced from "@/pages/CalendarEnhanced";
 import Extensions from "@/pages/Extensions";
 import Tasks from "@/pages/Tasks";
-import KeySteps from "@/pages/keysteps"; // ✅ MATCHES FILE NAME
+import AddEditTask from "@/pages/AddEditTask";
+import KeySteps from "@/pages/keysteps";
+import KeyStepsFullPage from "@/pages/KeyStepsFullPage";
+import AddSubMilestone from "@/pages/AddSubMilestone";
+import AddKeyStep from "@/pages/AddKeyStep";
 import NotFound from "@/pages/not-found";
 
 /* ---------------- PROTECTED ROUTE ---------------- */
@@ -87,8 +91,24 @@ function ProtectedRouter() {
         <ProtectedRoute component={Tasks} />
       </Route>
 
+      <Route path="/add-task">
+        <ProtectedRoute component={AddEditTask} />
+      </Route>
+
       <Route path="/keysteps">
         <ProtectedRoute component={KeySteps} />
+      </Route>
+
+      <Route path="/key-steps">
+        <ProtectedRoute component={KeyStepsFullPage} />
+      </Route>
+
+      <Route path="/add-key-step">
+        <ProtectedRoute component={AddKeyStep} />
+      </Route>
+
+      <Route path="/add-sub-milestone">
+        <ProtectedRoute component={AddSubMilestone} />
       </Route>
 
       <Route component={NotFound} />
@@ -100,6 +120,14 @@ function ProtectedRouter() {
 
 function Router() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
+
+  // If there is no token stored, ensure the app redirects to /login immediately
+  // so users opening the app directly see the login screen first.
+  useEffect(() => {
+    const token = localStorage.getItem("knockturn_token");
+    if (!token) setLocation("/login");
+  }, [setLocation]);
 
   if (!user) {
     return (

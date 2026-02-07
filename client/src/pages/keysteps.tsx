@@ -29,6 +29,7 @@ interface KeyStep {
   status: "pending" | "in-progress" | "completed";
   startDate: string;
   endDate: string;
+  parentKeyStepId?: string | null; // optional, because not all steps have a parent
 }
 
 // FORCE absolute API calls to bypass proxy issues
@@ -36,10 +37,12 @@ const API_BASE = "";
 
 export default function KeySteps() {
   const [keySteps, setKeySteps] = useState<KeyStep[]>([]);
+  const [childKeySteps, setChildKeySteps] = useState<{ [parentId: string]: KeyStep[] }>({});
   const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
 
   const [openDialog, setOpenDialog] = useState(false);
+  const [parentKeyStepForSubmilestone, setParentKeyStepForSubmilestone] = useState<KeyStep | null>(null);
   const [newStep, setNewStep] = useState({
     header: "",
     title: "",
@@ -50,9 +53,15 @@ export default function KeySteps() {
     startDate: "",
     endDate: "",
     projectId: "",
+    parentKeyStepId: null as string | null,
+
   });
 
   const [editingStep, setEditingStep] = useState<KeyStep | null>(null);
+
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [stepToDelete, setStepToDelete] = useState<KeyStep | null>(null);
+
 
   // Load projects
   useEffect(() => {
@@ -98,6 +107,16 @@ export default function KeySteps() {
 
         const data = await res.json();
         setKeySteps(Array.isArray(data) ? data : []);
+
+        // Fetch children for each parent keystep
+        if (Array.isArray(data)) {
+          data.forEach((step: KeyStep) => {
+            if (!step.parentKeyStepId) {
+              // Only fetch children for parent keysteps (those without a parent)
+              fetchChildrenForStep(step.id);
+            }
+          });
+        }
       } catch (err: any) {
         if (err.name !== "AbortError") console.error("Fetch error details:", err);
       }
@@ -108,6 +127,19 @@ export default function KeySteps() {
   }, [selectedProjectId]);
 
   const getProjectName = (id: string) => projects.find((p: any) => p.id === id)?.title || "Unknown Project";
+
+  // Fetch children for a keystep
+  const fetchChildrenForStep = async (parentId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/key-steps/${parentId}/children`);
+      if (res.ok) {
+        const children = await res.json();
+        setChildKeySteps((prev) => ({ ...prev, [parentId]: children }));
+      }
+    } catch (err) {
+      console.error("Failed to fetch children for step:", parentId, err);
+    }
+  };
 
   // Add new key step
   const handleAddStep = async () => {
@@ -122,37 +154,75 @@ export default function KeySteps() {
     }
 
     try {
+      const payload = {
+        projectId: selectedProjectId,
+        parentKeyStepId: newStep.parentKeyStepId || null,
+        header: parentKeyStepForSubmilestone ? null : (newStep.header || null),
+        title: newStep.title,
+        description: parentKeyStepForSubmilestone ? null : (newStep.description || null),
+        requirements: parentKeyStepForSubmilestone ? null : (newStep.requirements || null),
+        phase: Number(newStep.phase),
+        status: newStep.status.toLowerCase(),
+        startDate: newStep.startDate,
+        endDate: newStep.endDate,
+      };
+      
+      console.log("🔵 SUBMITTING KEYSTEP:", payload);
+      
       const response = await fetch(`${API_BASE}/api/key-steps`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newStep,
-          projectId: selectedProjectId,
-          phase: Number(newStep.phase),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const errText = await response.text();
+        console.error("❌ API ERROR:", errText);
         throw new Error(`Server Error (${response.status}): ${errText}`);
       }
 
       const createdStep = await response.json();
       setKeySteps((prev) => [...prev, createdStep]);
 
-      setNewStep({
-        header: "",
-        title: "",
-        description: "",
-        requirements: "",
-        phase: 1, // reset as number
-        status: "pending",
-        startDate: "",
-        endDate: "",
-        projectId: selectedProjectId,
-      });
+      // If this is a submilestone, fetch children again for the parent
+      if (createdStep.parentKeyStepId) {
+        fetchChildrenForStep(createdStep.parentKeyStepId);
+      }
 
-      setOpenDialog(false);
+      // If submilestone mode, reset form and keep dialog open
+      if (parentKeyStepForSubmilestone) {
+        // Clear completely and reset with parent info
+        const resetForm = {
+          header: "",
+          title: "",
+          description: "",
+          requirements: "",
+          phase: 1,
+          status: "pending" as const,
+          startDate: parentKeyStepForSubmilestone.startDate || "",
+          endDate: parentKeyStepForSubmilestone.endDate || "",
+          projectId: selectedProjectId,
+          parentKeyStepId: parentKeyStepForSubmilestone.id,
+        };
+        console.log("🟢 FORM RESET FOR NEXT SUBMILESTONE:", resetForm);
+        setNewStep(resetForm);
+        // Dialog stays open for adding more submilestones
+      } else {
+        // Normal keystep mode, close dialog
+        setNewStep({
+          header: "",
+          title: "",
+          description: "",
+          requirements: "",
+          phase: 1,
+          status: "pending",
+          startDate: "",
+          endDate: "",
+          projectId: selectedProjectId,
+          parentKeyStepId: null,
+        });
+        setOpenDialog(false);
+      }
     } catch (error: any) {
       console.error("Full Error Object:", error);
       alert(`Error: ${error.message}`);
@@ -164,7 +234,15 @@ export default function KeySteps() {
     if (!confirm("Are you sure you want to delete this step?")) return;
     try {
       const response = await fetch(`${API_BASE}/api/key-steps/${id}`, { method: "DELETE" });
-      if (response.ok) setKeySteps((prev) => prev.filter((s) => s.id !== id));
+      if (response.ok) {
+        setKeySteps((prev) => prev.filter((s) => s.id !== id));
+        // Clear children cache for this step
+        setChildKeySteps((prev) => {
+          const updated = { ...prev };
+          delete updated[id];
+          return updated;
+        });
+      }
     } catch (error) {
       console.error("Error deleting step:", error);
     }
@@ -176,62 +254,68 @@ export default function KeySteps() {
     setOpenDialog(true);
   };
 
-const handleUpdateStep = async () => {
-  if (!editingStep) return;
+  const handleUpdateStep = async () => {
+    if (!editingStep) return;
 
-  // Validate required fields
-  if (!editingStep.title || !editingStep.phase || !editingStep.startDate || !editingStep.endDate) {
-    alert("Please fill in Title, Phase, Start Date, and End Date.");
-    return;
-  }
-
-  try {
-    const url = `${API_BASE}/api/key-steps/${editingStep.id}`;
-
-    // Convert date strings to ISO
-    const payload = {
-      title: editingStep.title,
-      header: editingStep.header || "",
-      description: editingStep.description || "",
-      requirements: editingStep.requirements || "",
-      phase: Number(editingStep.phase),
-      status: editingStep.status.toLowerCase(),
-      startDate: editingStep.startDate,
-      endDate: editingStep.endDate,
-      projectId: editingStep.projectId || selectedProjectId,
-    };
-
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const text = await res.text(); // Read raw response
-
-    if (!res.ok) {
-      console.error("PUT failed response:", text);
-      throw new Error(`Update failed (${res.status}): ${text}`);
+    // Validate required fields
+    if (!editingStep.title || !editingStep.phase || !editingStep.startDate || !editingStep.endDate) {
+      alert("Please fill in Title, Phase, Start Date, and End Date.");
+      return;
     }
 
-    // Parse JSON safely
-    let updated;
     try {
-      updated = JSON.parse(text);
-    } catch {
-      console.error("Invalid JSON from server:", text);
-      throw new Error("Invalid JSON response from server");
-    }
+      const url = `${API_BASE}/api/key-steps/${editingStep.id}`;
 
-    // Update frontend state
-    setKeySteps((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    setOpenDialog(false);
-    setEditingStep(null);
-  } catch (err: any) {
-    console.error("Update error details:", err);
-    alert("Failed to update step: " + err.message);
-  }
-};
+      // Convert date strings to ISO
+      const payload = {
+        title: editingStep.title,
+        header: editingStep.header || "",
+        description: editingStep.description || "",
+        requirements: editingStep.requirements || "",
+        phase: Number(editingStep.phase),
+        status: editingStep.status.toLowerCase(),
+        startDate: editingStep.startDate,
+        endDate: editingStep.endDate,
+        projectId: editingStep.projectId || selectedProjectId,
+      };
+
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text(); // Read raw response
+
+      if (!res.ok) {
+        console.error("PUT failed response:", text);
+        throw new Error(`Update failed (${res.status}): ${text}`);
+      }
+
+      // Parse JSON safely
+      let updated;
+      try {
+        updated = JSON.parse(text);
+      } catch {
+        console.error("Invalid JSON from server:", text);
+        throw new Error("Invalid JSON response from server");
+      }
+
+      // Update frontend state
+      setKeySteps((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      
+      // If this is a submilestone, refresh children for its parent
+      if (updated.parentKeyStepId) {
+        fetchChildrenForStep(updated.parentKeyStepId);
+      }
+      
+      setOpenDialog(false);
+      setEditingStep(null);
+    } catch (err: any) {
+      console.error("Update error details:", err);
+      alert("Failed to update step: " + err.message);
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -260,43 +344,49 @@ const handleUpdateStep = async () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 p-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="space-y-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Key Steps</h1>
           <p className="text-muted-foreground mt-1">Manage project phases and milestones effectively.</p>
         </div>
 
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="w-full md:w-64">
-            <Select
-              value={selectedProjectId}
-              onValueChange={(val) => {
-                localStorage.setItem("selectedProjectId", val);
-                setSelectedProjectId(val);
-                setNewStep((prev) => ({ ...prev, projectId: val }));
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Project" />
-              </SelectTrigger>
-              <SelectContent>
-                {projects.map((p: any) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold whitespace-nowrap">Project</span>
+            <div className="w-56">
+              <Select
+                value={selectedProjectId}
+                onValueChange={(val) => {
+                  localStorage.setItem("selectedProjectId", val);
+                  setSelectedProjectId(val);
+                  setNewStep((prev) => ({ ...prev, projectId: val }));
+                }}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Select Project" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <Dialog
             open={openDialog}
             onOpenChange={(open) => {
               setOpenDialog(open);
-              if (!open) setEditingStep(null);
+              if (!open) {
+                setEditingStep(null);
+                setParentKeyStepForSubmilestone(null);
+              }
             }}
           >
-            {!editingStep && (
+            {!editingStep && !parentKeyStepForSubmilestone && (
               <DialogTrigger asChild>
                 <Button className="w-full md:w-auto">
                   <Plus className="mr-2 h-4 w-4" />
@@ -307,15 +397,35 @@ const handleUpdateStep = async () => {
 
             <DialogContent className="sm:max-w-[525px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>{editingStep ? "Edit Key Step" : "Create New Key Step"}</DialogTitle>
+                <DialogTitle>
+                  {editingStep
+                    ? "Edit Key Step"
+                    : parentKeyStepForSubmilestone
+                    ? "Add Sub-Milestone"
+                    : "Create New Key Step"}
+                </DialogTitle>
                 <DialogDescription>
                   {editingStep
                     ? "Update the details of this step."
+                    : parentKeyStepForSubmilestone
+                    ? `Add a sub-milestone under "${parentKeyStepForSubmilestone.title}"`
                     : "Define a new phase or milestone for your timeline."}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="grid gap-4 py-4">
+                {parentKeyStepForSubmilestone && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-semibold text-blue-900">Parent Milestone:</p>
+                    <p className="text-sm text-blue-800">
+                      <span className="font-medium">{parentKeyStepForSubmilestone.title}</span>
+                      {parentKeyStepForSubmilestone.description && (
+                        <div className="text-xs mt-1">{parentKeyStepForSubmilestone.description}</div>
+                      )}
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid gap-2">
                   <Label htmlFor="header">Step Header / Category</Label>
                   <Input
@@ -327,14 +437,17 @@ const handleUpdateStep = async () => {
                         ? setEditingStep({ ...editingStep, header: e.target.value })
                         : setNewStep({ ...newStep, header: e.target.value })
                     }
+                    disabled={!!parentKeyStepForSubmilestone}
                   />
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="title">Step Title</Label>
+                  <Label htmlFor="title">
+                    {parentKeyStepForSubmilestone ? "Sub-Milestone Title" : "Step Title"}
+                  </Label>
                   <Input
                     id="title"
-                    placeholder="e.g., Initial Design Review"
+                    placeholder={parentKeyStepForSubmilestone ? "e.g., Design Review Meeting" : "e.g., Initial Design Review"}
                     value={editingStep?.title ?? newStep.title}
                     onChange={(e) =>
                       editingStep
@@ -355,6 +468,7 @@ const handleUpdateStep = async () => {
                         ? setEditingStep({ ...editingStep, description: e.target.value })
                         : setNewStep({ ...newStep, description: e.target.value })
                     }
+                    disabled={!!parentKeyStepForSubmilestone}
                   />
                 </div>
 
@@ -369,6 +483,7 @@ const handleUpdateStep = async () => {
                         ? setEditingStep({ ...editingStep, requirements: e.target.value })
                         : setNewStep({ ...newStep, requirements: e.target.value })
                     }
+                    disabled={!!parentKeyStepForSubmilestone}
                   />
                 </div>
 
@@ -443,12 +558,17 @@ const handleUpdateStep = async () => {
                   onClick={() => {
                     setOpenDialog(false);
                     setEditingStep(null);
+                    setParentKeyStepForSubmilestone(null);
                   }}
                 >
                   Cancel
                 </Button>
                 <Button type="button" onClick={editingStep ? handleUpdateStep : handleAddStep}>
-                  {editingStep ? "Save Changes" : "Create Step"}
+                  {editingStep
+                    ? "Save Changes"
+                    : parentKeyStepForSubmilestone
+                    ? "Create Sub-Milestone"
+                    : "Create Step"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -484,89 +604,242 @@ const handleUpdateStep = async () => {
       <div className="grid gap-4">
         {keySteps.length > 0 ? (
           keySteps
+            .filter((step) => !step.parentKeyStepId) // Only show parent keysteps
             .sort((a, b) => a.phase - b.phase)
             .map((step) => (
-              <Card
-                key={step.id}
-                className="group hover:border-primary/50 transition-all duration-200 shadow-sm overflow-hidden"
-              >
-                {step.header && (
-                  <div className="bg-muted/30 px-6 py-2 border-b flex items-center gap-2">
-                    <Tag className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      {step.header}
-                    </span>
-                  </div>
-                )}
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-4 flex-1">
-                      <div className="flex items-center justify-center h-12 w-12 rounded-full bg-background border shadow-sm group-hover:scale-110 transition-transform">
-                        {getStatusIcon(step.status)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="secondary" className="font-mono">
-                            Phase {step.phase}
-                          </Badge>
-                          <CardTitle className="text-lg">{step.title}</CardTitle>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline" className={`${getStatusColor(step.status)} capitalize`}>
-                            {step.status.replace("-", " ")}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleEditStep(step)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteStep(step.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pl-20 space-y-4">
-                  <p className="text-muted-foreground leading-relaxed">{step.description}</p>
-                  {step.requirements && (
-                    <div className="bg-primary/5 rounded-lg p-3 border border-primary/10">
-                      <div className="flex items-center gap-2 mb-2">
-                        <ListChecks className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-semibold">Requirements</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{step.requirements}</p>
+              <div key={step.id}>
+                <Card
+                  className="group hover:border-primary/50 transition-all duration-200 shadow-sm overflow-hidden"
+                >
+                  {step.header && (
+                    <div className="bg-muted/30 px-6 py-2 border-b flex items-center gap-2">
+                      <Tag className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {step.header}
+                      </span>
                     </div>
                   )}
-                  <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground pt-2">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      <span>Starts: {step.startDate}</span>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-background border shadow-sm group-hover:scale-110 transition-transform">
+                          {getStatusIcon(step.status)}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="secondary" className="font-mono">
+                              Phase {step.phase}
+                            </Badge>
+                            <CardTitle className="text-lg">{step.title}</CardTitle>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Badge variant="outline" className={`${getStatusColor(step.status)} capitalize`}>
+                              {step.status.replace("-", " ")}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleEditStep(step)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          onClick={() => {
+                            setStepToDelete(step);  // set the step to be deleted
+                            setOpenDeleteDialog(true); // open confirmation dialog
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" />
-                      <span>Ends: {step.endDate}</span>
+                  </CardHeader>
+                  <CardContent className="pl-20 space-y-4">
+                    <p className="text-muted-foreground leading-relaxed">{step.description}</p>
+                    {step.requirements && (
+                      <div className="bg-primary/5 rounded-lg p-3 border border-primary/10">
+                        <div className="flex items-center gap-2 mb-2">
+                          <ListChecks className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold">Requirements</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{step.requirements}</p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground pt-2">
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        <span>Starts: {step.startDate}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>Ends: {step.endDate}</span>
+                      </div>
                     </div>
+                    <div className="pt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setParentKeyStepForSubmilestone(step);
+                          setNewStep({
+                            header: step.header || "",
+                            title: "",
+                            description: step.description || "",
+                            requirements: step.requirements || "",
+                            phase: step.phase,
+                            status: "pending",
+                            startDate: step.startDate,
+                            endDate: step.endDate,
+                            projectId: selectedProjectId,
+                            parentKeyStepId: step.id,
+                          });
+                          setOpenDialog(true);
+                        }}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Sub-Milestone
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Submilestones */}
+                {childKeySteps[step.id] && childKeySteps[step.id].length > 0 && (
+                  <div className="ml-6 mt-3 space-y-3 border-l-2 border-primary/20 pl-4">
+                    {childKeySteps[step.id]
+                      .sort((a, b) => a.phase - b.phase)
+                      .map((child) => (
+                        <Card
+                          key={child.id}
+                          className="group hover:border-primary/50 transition-all duration-200 shadow-sm bg-primary/2"
+                        >
+                          <CardHeader className="pb-3 py-3">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className="flex items-center justify-center h-10 w-10 rounded-full bg-background border shadow-sm group-hover:scale-110 transition-transform">
+                                  {getStatusIcon(child.status)}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline" className="font-mono text-xs">
+                                      Sub
+                                    </Badge>
+                                    <CardTitle className="text-base">{child.title}</CardTitle>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge variant="outline" className={`${getStatusColor(child.status)} capitalize text-xs`}>
+                                      {child.status.replace("-", " ")}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleEditStep(child)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                  onClick={() => {
+                                    setStepToDelete(child);
+                                    setOpenDeleteDialog(true);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="pl-12 space-y-2">
+                            {child.description && (
+                              <p className="text-sm text-muted-foreground leading-relaxed">{child.description}</p>
+                            )}
+                            <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground pt-1">
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                <span>{child.startDate}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                <span>{child.endDate}</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
                   </div>
-                </CardContent>
-              </Card>
+                )}
+              </div>
             ))
         ) : (
           <div className="text-center py-12 border-2 border-dashed rounded-lg text-muted-foreground">
             No steps found for this project. Click "New Key Step" to add one.
           </div>
         )}
+
+        {/* DELETE CONFIRMATION DIALOG */}
+        <Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Key Step</DialogTitle>
+            </DialogHeader>
+
+            <div className="py-2 text-sm text-muted-foreground">
+              Are you sure you want to delete
+              <span className="font-semibold"> {stepToDelete?.title}</span>?
+            </div>
+
+            <DialogFooter className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setOpenDeleteDialog(false);
+                  setStepToDelete(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!stepToDelete) return;
+                  try {
+                    const res = await fetch(`${API_BASE}/api/key-steps/${stepToDelete.id}`, {
+                      method: "DELETE",
+                    });
+                    if (res.ok) {
+                      setKeySteps((prev) => prev.filter((s) => s.id !== stepToDelete.id));
+                      setOpenDeleteDialog(false);
+                      setStepToDelete(null);
+                    } else {
+                      const errText = await res.text();
+                      throw new Error(errText || "Failed to delete");
+                    }
+                  } catch (err: any) {
+                    console.error("Error deleting step:", err);
+                    alert("Delete failed: " + err.message);
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

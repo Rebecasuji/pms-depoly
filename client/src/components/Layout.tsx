@@ -71,7 +71,7 @@ interface KeyStep {
 // --- Auth Context ---
 const AuthContext = createContext<{
   user: any;
-  login: () => void;
+  login: (employeeCode?: string, password?: string) => Promise<void>;
   logout: () => void;
 } | null>(null);
 
@@ -80,20 +80,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('knockturn_user');
-    if (storedUser) setUser(JSON.parse(storedUser));
+    // Force login screen on initial load: clear any existing token and
+    // navigate to /login so users always see the login page first.
+    // This prevents showing the dashboard automatically on open.
+    const token = localStorage.getItem("knockturn_token");
+    if (token) localStorage.removeItem("knockturn_token");
+    setLocation("/login");
   }, []);
 
-  const login = () => {
-    const mockUser = USERS[0];
-    setUser(mockUser);
-    localStorage.setItem('knockturn_user', JSON.stringify(mockUser));
+  const login = async (employeeCode?: string, password?: string) => {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeCode, password }),
+    });
+    if (!res.ok) throw new Error("Login failed");
+    const data = await res.json();
+    localStorage.setItem("knockturn_token", data.token);
+    setUser(data.user);
     setLocation("/");
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      const token = localStorage.getItem("knockturn_token");
+      await fetch("/api/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      // ignore
+    }
     setUser(null);
-    localStorage.removeItem('knockturn_user');
+    localStorage.removeItem("knockturn_token");
     setLocation("/login");
   };
 
@@ -114,7 +130,7 @@ export function useAuth() {
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Projects", href: "/projects", icon: Folder },
-  { label: "Key Steps", href: "/keysteps", icon: FolderKanban },
+  { label: "Key Steps", href: "/key-steps", icon: FolderKanban },
   { label: "Tasks", href: "/tasks", icon: CheckCircle2 },
   { label: "Team", href: "/users", icon: UsersIcon },
   { label: "Calendar", href: "/calendar", icon: CalendarIcon },

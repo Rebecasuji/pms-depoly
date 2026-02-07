@@ -52,40 +52,48 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { v4 as uuidv4 } from "uuid";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Projects() {
+  const { toast } = useToast();
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // Current project being edited (null if creating)
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // Modal mode: create / edit / saveAs
   const [modalMode, setModalMode] = useState<'create' | 'edit' | 'saveAs'>('create');
-
   const [formProject, setFormProject] = useState({
     title: "",
     projectCode: "",
+    department: [] as string[],
     clientName: "",
     description: "",
     startDate: "",
     endDate: "",
     progress: 0,
+    status: "Planned", // Explicitly added status
     team: [] as string[],
     vendors: [] as string[]
   });
-
   const [uploadingProject, setUploadingProject] = useState<string | null>(null);
   const [projectFiles, setProjectFiles] = useState<Record<string, any[]>>({});
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [vendorInput, setVendorInput] = useState("");
 
-  // CHANGE 1 — Extract fetchProjects into a function
+  const apiFetch = (url: string, opts?: RequestInit) => {
+    const token = localStorage.getItem("knockturn_token");
+    const headers = { ...(opts?.headers || {}), Authorization: token ? `Bearer ${token}` : "" } as Record<string, string>;
+    return fetch(url, { ...opts, headers });
+  };
+
+  // FETCH PROJECTS
   const fetchProjects = async () => {
     try {
-      const res = await fetch("/api/projects");
+      const res = await apiFetch("/api/projects");
+      if (!res.ok) throw new Error("Failed to fetch projects");
       const data = await res.json();
       setProjects(data);
     } catch (err) {
@@ -93,19 +101,45 @@ export default function Projects() {
     }
   };
 
-  // CHANGE 2 — Call fetchProjects() correctly in useEffect
+  const addVendor = () => {
+    const value = vendorInput.trim();
+    if (!value) return;
+
+    // prevent duplicates (case-insensitive)
+    if (
+      formProject.vendors.some(
+        v => v.toLowerCase() === value.toLowerCase()
+      )
+    ) {
+      setVendorInput("");
+      return;
+    }
+
+    setFormProject(prev => ({
+      ...prev,
+      vendors: [...prev.vendors, value],
+    }));
+
+    setVendorInput("");
+  };
+
+  const removeVendor = (vendor: string) => {
+    setFormProject(prev => ({
+      ...prev,
+      vendors: prev.vendors.filter(v => v !== vendor),
+    }));
+  };
+
+
   useEffect(() => {
-    // Fetch Employees
     fetch('/api/employees')
       .then(r => r.json())
       .then(data => setEmployees(data))
       .catch(console.error);
 
-    // Fetch Projects
     fetchProjects();
   }, []);
 
-  // CHANGE 3 — Fetch project files when expanded
   const fetchProjectFiles = async (projectId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/files`);
@@ -124,21 +158,29 @@ export default function Projects() {
       p.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.projectCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.clientName?.toLowerCase().includes(searchTerm.toLowerCase());
+
     const matchesStatus = statusFilter === "all" || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
+
+    const matchesDepartment =
+      departmentFilter === "all" ||
+      (p.department || []).includes(departmentFilter);
+
+    return matchesSearch && matchesStatus && matchesDepartment;
   });
 
   const handleOpenCreate = () => {
-    setModalMode('create');   // 🔥 IMPORTANT
+    setModalMode("create");
     setEditingId(null);
     setFormProject({
       title: "",
       projectCode: "",
+      department: [],
       clientName: "",
       description: "",
       startDate: "",
       endDate: "",
       progress: 0,
+      status: "Planned", // Explicitly reset status
       team: [],
       vendors: []
     });
@@ -149,15 +191,16 @@ export default function Projects() {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const response = await fetch(`/api/projects/${projectId}/upload`, {
+      const response = await apiFetch(`/api/projects/${projectId}/upload`, {
         method: 'POST',
         body: formData
       });
       if (response.ok) {
-        const newFile = await response.json();
+        const uploadedFile = await response.json();
+        // Ensure the backend returns { id, fileName, fileSize, url }
         setProjectFiles(prev => ({
           ...prev,
-          [projectId]: [...(prev[projectId] || []), newFile]
+          [projectId]: [...(prev[projectId] || []), uploadedFile]
         }));
       }
     } catch (err) {
@@ -166,53 +209,67 @@ export default function Projects() {
   };
 
   const handleOpenEdit = (project: any) => {
-    setModalMode('edit'); // set modal to edit mode
-    setEditingId(project.id); // <-- fix here
+    setModalMode("edit");
+    setEditingId(project.id);
+
     setFormProject({
       title: project.title,
       projectCode: project.projectCode || "",
+      department: project.department ?? [],
       clientName: project.clientName || "",
       description: project.description || "",
-      startDate: project.startDate?.slice(0, 10) || "",
-      endDate: project.endDate?.slice(0, 10) || "",
+      startDate: project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "",
+      endDate: project.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "",
       progress: project.progress || 0,
+      status: project.status || "Planned",
       team: project.team || [],
-      vendors: project.vendors || []
+      vendors: project.vendors || [],
     });
+
     setOpenDialog(true);
   };
 
+  // ✅ FIXED SAVE PROJECT
   const handleSaveProject = async () => {
     if (!formProject.title || !formProject.startDate || !formProject.endDate) {
-      alert("Please fill required fields");
+      toast({ variant: "destructive", title: "Validation Error", description: "Please fill required fields" });
       return;
     }
 
     try {
+      const projectId = editingId || uuidv4();
+      const projectCode =
+        modalMode !== "edit"
+          ? formProject.projectCode || `P-${Date.now()}`
+          : formProject.projectCode;
+
+      // FIXED payload: send empty arrays/strings instead of null
       const payload = {
         title: formProject.title,
-        projectCode: formProject.projectCode,   // ✅ ADD THIS
+        projectCode,
         clientName: formProject.clientName,
+        department: formProject.department,
         description: formProject.description,
+        status: formProject.status,
         startDate: formProject.startDate,
         endDate: formProject.endDate,
-        progress: formProject.progress,
+        progress: Number(formProject.progress),
         team: formProject.team,
         vendors: formProject.vendors,
       };
 
-      let response;
 
-      if (modalMode === 'edit' && editingId) {
-        // UPDATE existing project
-        response = await fetch(`/api/projects/${editingId}`, {
+      console.log("Saving project payload:", payload);
+
+      let response;
+      if (modalMode === "edit" && editingId) {
+        response = await apiFetch(`/api/projects/${editingId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       } else {
-        // CREATE new project (Create or Save As)
-        response = await fetch("/api/projects", {
+        response = await apiFetch("/api/projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -228,23 +285,28 @@ export default function Projects() {
       await fetchProjects();
       setOpenDialog(false);
       setEditingId(null);
-      setModalMode('create');
+      setModalMode("create");
+
+      toast({
+        title: modalMode === "edit" ? "Updated" : "Created",
+        description: `Project "${formProject.title}" ${modalMode === "edit" ? "updated" : "created"} successfully!`,
+      });
     } catch (error) {
       console.error("Failed to save project:", error);
-      alert("Save failed. Check console.");
+      toast({ variant: "destructive", title: "Error", description: "Failed to save project. Check console." });
     }
   };
 
   const handleDeleteProject = async (id: string) => {
     try {
-      const response = await fetch(`/api/projects/${id}`, {
-        method: 'DELETE',
-      });
+      const response = await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
       if (response.ok) {
         setProjects(projects.filter(p => p.id !== id));
+        toast({ title: "Deleted", description: "Project deleted successfully" });
       }
     } catch (error) {
       console.error("Failed to delete project:", error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete project" });
     }
   };
 
@@ -262,17 +324,24 @@ export default function Projects() {
   };
 
   const getStatusBadge = (status: string) => {
-    const s = status?.toLowerCase() || 'open';
-    if (s === 'pending') {
-      return <Badge className="bg-orange-500 hover:bg-orange-600 text-white text-[10px] uppercase border-none">Pending</Badge>;
+    const s = status || 'Planned';
+    if (s === 'Planned') {
+      return <Badge className="bg-slate-500 hover:bg-slate-600 text-white text-[10px] uppercase border-none">Planned</Badge>;
     }
-    if (s === 'out of schedule') {
-      return <Badge className="bg-red-600 hover:bg-red-700 text-white text-[10px] uppercase border-none">Out of Schedule</Badge>;
-    }
-    if (s === 'in-progress') {
+    if (s === 'In Progress') {
       return <Badge className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] uppercase border-none">In Progress</Badge>;
     }
-    return <Badge variant="secondary" className="text-[10px] uppercase">{status}</Badge>;
+    if (s === 'On Hold') {
+      return <Badge className="bg-orange-500 hover:bg-orange-600 text-white text-[10px] uppercase border-none">On Hold</Badge>;
+    }
+    if (s === 'Completed') {
+      return <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] uppercase border-none">Completed</Badge>;
+    }
+    return (
+      <Badge variant="secondary" className="text-[10px] uppercase">
+        {status || "Planned"}
+      </Badge>
+    );
   };
 
   const getProgressColorClass = (progress: number) => {
@@ -280,6 +349,13 @@ export default function Projects() {
     if (progress <= 70) return "bg-amber-500";
     return "bg-emerald-500";
   };
+
+  const filteredEmployees =
+    formProject.department.length > 0
+      ? employees.filter(emp =>
+        formProject.department.includes(emp.department)
+      )
+      : employees;
 
   return (
     <div className="space-y-6">
@@ -298,9 +374,9 @@ export default function Projects() {
           </Button>
 
           {/* Dialog Content */}
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="font-display">
+          <DialogContent className="max-w-none w-screen h-screen m-0 rounded-none overflow-y-auto">
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="text-2xl font-display">
                 {editingId ? "Edit Project" : "Create New Project"}
               </DialogTitle>
               <DialogDescription className="font-sans">
@@ -310,9 +386,9 @@ export default function Projects() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-6 font-sans py-4">
-              {/* Project Name & Code */}
-              <div className="grid grid-cols-2 gap-4">
+            <div className="px-6 space-y-8 font-sans py-4 max-w-5xl mx-auto">
+              {/* Project Name, Code & Status */}
+              <div className="grid grid-cols-3 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="title">Project Name</Label>
                   <Input
@@ -322,6 +398,7 @@ export default function Projects() {
                     placeholder="e.g., Website Redesign"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="projectCode">Project Code</Label>
                   <Input
@@ -330,6 +407,24 @@ export default function Projects() {
                     onChange={(e) => setFormProject({ ...formProject, projectCode: e.target.value })}
                     placeholder="e.g., K-2025-001"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">Project Status</Label>
+                  <Select
+                    value={formProject.status || "Planned"}
+                    onValueChange={(v) => setFormProject({ ...formProject, status: v })}
+                  >
+                    <SelectTrigger id="status">
+                      <SelectValue placeholder="Select Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Planned">Planned</SelectItem>
+                      <SelectItem value="In Progress">In Progress</SelectItem>
+                      <SelectItem value="On Hold">On Hold</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -345,13 +440,41 @@ export default function Projects() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="vendor">Assign Vendor</Label>
-                  <Input
-                    id="vendor"
-                    value={formProject.vendors[0] || ""}
-                    onChange={(e) => setFormProject({ ...formProject, vendors: [e.target.value] })}
-                    placeholder="Enter vendor name"
-                  />
+                  <Label>Departments</Label>
+                  <div className="grid grid-cols-2 gap-2 border rounded-lg p-3 bg-muted/20">
+                    {[
+                      "HR",
+                      "Operations",
+                      "Software Developers",
+                      "Finance",
+                      "Purchase",
+                      "Presales",
+                      "IT Support",
+                    ].map((dept) => {
+                      const isChecked = formProject.department.includes(dept);
+
+                      return (
+                        <label
+                          key={dept}
+                          className="flex items-center gap-2 text-sm cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setFormProject((prev) => ({
+                                ...prev,
+                                department: isChecked
+                                  ? prev.department.filter(d => d !== dept)
+                                  : Array.from(new Set([...prev.department, dept])),
+                              }));
+                            }}
+                          />
+                          {dept}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -366,7 +489,12 @@ export default function Projects() {
                   </span>
                 </div>
 
-                <Select onValueChange={addTeamMember}>
+                <Select
+                  value=""
+                  onValueChange={(id) => {
+                    addTeamMember(id);
+                  }}
+                >
                   <SelectTrigger className="w-full bg-background">
                     <SelectValue placeholder="Search and add employees..." />
                   </SelectTrigger>
@@ -418,6 +546,60 @@ export default function Projects() {
                     </div>
                   )}
                 </ScrollArea>
+              </div>
+
+              {/* Vendors (Manual Entry) */}
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                    <Users className="h-4 w-4" /> Vendors
+                  </Label>
+                  <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                    {formProject.vendors.length} Added
+                  </span>
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    value={vendorInput}
+                    onChange={(e) => setVendorInput(e.target.value)}
+                    placeholder="Type vendor name and press Add"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addVendor();
+                      }
+                    }}
+                  />
+                  <Button type="button" onClick={addVendor}>
+                    Add
+                  </Button>
+                </div>
+
+                {formProject.vendors.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">
+                    No vendors added yet.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {formProject.vendors.map((vendor) => (
+                      <Badge
+                        key={vendor}
+                        variant="secondary"
+                        className="flex items-center gap-1"
+                      >
+                        {vendor}
+                        <button
+                          type="button"
+                          onClick={() => removeVendor(vendor)}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Progress & Dates */}
@@ -480,6 +662,7 @@ export default function Projects() {
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 font-sans">
+        {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -489,6 +672,25 @@ export default function Projects() {
             className="pl-9"
           />
         </div>
+
+        {/* Department Filter */}
+        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+          <SelectTrigger className="w-full md:w-56">
+            <SelectValue placeholder="All Departments" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Departments</SelectItem>
+            <SelectItem value="HR">HR</SelectItem>
+            <SelectItem value="Operations">Operations</SelectItem>
+            <SelectItem value="Software Developers">Software Developers</SelectItem>
+            <SelectItem value="Finance">Finance</SelectItem>
+            <SelectItem value="Purchase">Purchase</SelectItem>
+            <SelectItem value="Presales">Presales</SelectItem>
+            <SelectItem value="IT Support">IT Support</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Status Filter */}
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full md:w-40">
             <SelectValue placeholder="Filter by status" />
@@ -575,7 +777,14 @@ export default function Projects() {
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenEdit(project); }}>
                           <Edit className="mr-2 h-4 w-4" /> Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }} className="text-destructive">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectToDelete(project.id);
+                            setDeleteConfirmOpen(true);
+                          }}
+                          className="text-destructive"
+                        >
                           <Trash2 className="mr-2 h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -598,6 +807,26 @@ export default function Projects() {
                           </div>
                         </div>
 
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+                            Departments
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {project.department && project.department.length > 0 ? (
+                              project.department.map((dept: string) => (
+                                <Badge key={dept} variant="secondary">
+                                  {dept}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                No departments assigned
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div className="col-span-2">
                             <p className="text-muted-foreground text-xs uppercase font-semibold">Client</p>
@@ -605,11 +834,11 @@ export default function Projects() {
                           </div>
                           <div>
                             <p className="text-muted-foreground text-xs uppercase font-semibold">Start Date</p>
-                            <p className="font-medium">{project.startDate}</p>
+                            <p className="font-medium">{project.startDate ? new Date(project.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
                           </div>
                           <div>
                             <p className="text-muted-foreground text-xs uppercase font-semibold">End Date</p>
-                            <p className="font-medium">{project.endDate}</p>
+                            <p className="font-medium">{project.endDate ? new Date(project.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
                           </div>
                         </div>
                       </div>
@@ -652,30 +881,64 @@ export default function Projects() {
                         <div className="border-t pt-4">
                           <p className="text-xs font-semibold uppercase text-muted-foreground mb-3 flex items-center gap-2"><Upload className="h-3 w-3" /> Project Files</p>
                           <div className="space-y-2">
-                            {projectFiles[project.id]?.length > 0 ? (
-                              projectFiles[project.id].map((file: any) => (
-                                <div key={file.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20">
-                                  <FileIcon className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm flex-1 truncate">{file.fileName}</span>
-                                  <span className="text-xs text-muted-foreground">{(file.fileSize / 1024).toFixed(1)}KB</span>
-                                </div>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground">No files uploaded</span>
-                            )}
-                            <label className="flex items-center gap-2 px-3 py-2 text-sm border border-dashed rounded cursor-pointer hover:bg-muted/20 transition-colors">
-                              <Upload className="h-4 w-4" />
-                              <span>Upload File</span>
-                              <input
-                                type="file"
-                                className="hidden"
-                                onChange={(e) => {
-                                  if (e.target.files?.[0]) {
-                                    handleFileUpload(project.id, e.target.files[0]);
-                                  }
-                                }}
-                              />
-                            </label>
+                            <div className="space-y-2">
+                              {projectFiles[project.id]?.length > 0 ? (
+                                projectFiles[project.id].map((file: any) => (
+                                  <div key={file.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20">
+                                    <FileIcon className="h-4 w-4 text-muted-foreground" />
+
+                                    {/* Clickable to open */}
+                                    <a
+                                      href={file.url} // MUST be a full URL
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm flex-1 truncate underline hover:text-primary"
+                                    >
+                                      {file.fileName}
+                                    </a>
+
+                                    <span className="text-xs text-muted-foreground">{(file.fileSize / 1024).toFixed(1)} KB</span>
+
+                                    <div className="flex gap-1">
+                                      {/* Download button */}
+                                      <a
+                                        href={file.url} // MUST be a full URL
+                                        download={file.fileName}
+                                        className="text-xs px-2 py-0.5 border rounded hover:bg-muted/20"
+                                      >
+                                        Download
+                                      </a>
+
+                                      {/* Cancel/Delete button with confirmation */}
+                                      <button
+                                        onClick={async () => {
+                                          if (confirm(`Are you sure you want to delete ${file.fileName}?`)) {
+                                            try {
+                                              const res = await apiFetch(`/api/projects/${project.id}/files/${file.id}`, { method: "DELETE" });
+                                              if (res.ok) {
+                                                setProjectFiles(prev => ({
+                                                  ...prev,
+                                                  [project.id]: prev[project.id].filter(f => f.id !== file.id)
+                                                }));
+                                                toast({ title: "Deleted", description: `${file.fileName} deleted successfully` });
+                                              }
+                                            } catch (err) {
+                                              console.error("Failed to delete file:", err);
+                                              toast({ variant: "destructive", title: "Error", description: "Failed to delete file" });
+                                            }
+                                          }
+                                        }}
+                                        className="text-xs px-2 py-0.5 border rounded text-destructive hover:bg-muted/20"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No files uploaded</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -686,6 +949,43 @@ export default function Projects() {
             );
           })
         )}
+        {/* DELETE CONFIRMATION DIALOG */}
+        <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-destructive">
+                Confirm Delete
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this project?
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogFooter className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  setProjectToDelete(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (projectToDelete) {
+                    await handleDeleteProject(projectToDelete);
+                  }
+                  setDeleteConfirmOpen(false);
+                  setProjectToDelete(null);
+                }}
+              >
+                Continue
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

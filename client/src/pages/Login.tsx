@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
 import companyLogo from "@/pages/logo.jpg";
 
 export default function Login() {
@@ -20,27 +20,43 @@ export default function Login() {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // show / hide password states
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   // Forgot password modal state
   const [openForgot, setOpenForgot] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
+
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [resetEmployeeCode, setResetEmployeeCode] = useState("");
+
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!employeeCode) {
+      alert("Please enter your employee code");
+      return;
+    }
+
     setIsLoading(true);
-    setTimeout(() => {
-      login();
+    login(employeeCode, password).catch((err) => {
+      alert("Login failed");
       setIsLoading(false);
-    }, 1000);
+    });
   };
 
   const handlePasswordReset = () => {
-    if (!resetEmail || !newPassword || !confirmPassword) {
+    if (!resetEmployeeCode || !newPassword || !confirmPassword) {
       alert("Please fill all fields");
       return;
     }
+
     if (newPassword !== confirmPassword) {
       alert("Passwords do not match");
       return;
@@ -51,7 +67,7 @@ export default function Login() {
       alert("Password updated successfully");
       setResetLoading(false);
       setOpenForgot(false);
-      setResetEmail("");
+      setResetEmployeeCode("");
       setNewPassword("");
       setConfirmPassword("");
     }, 1000);
@@ -82,8 +98,14 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label>Email</Label>
-              <Input type="email" placeholder="name@company.com" required />
+              <Label>Employee Code</Label>
+              <Input
+                type="text"
+                placeholder="Enter employee code"
+                value={employeeCode}
+                onChange={(e) => setEmployeeCode(e.target.value)}
+                required
+              />
             </div>
 
             <div className="space-y-2">
@@ -97,7 +119,24 @@ export default function Login() {
                   Forgot password?
                 </button>
               </div>
-              <Input type="password" required />
+
+              {/* Password with Eye Icon */}
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  className="pr-10"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -110,11 +149,7 @@ export default function Login() {
               </label>
             </div>
 
-            <Button
-              type="submit"
-              className="h-11 w-full"
-              disabled={isLoading}
-            >
+            <Button type="submit" className="h-11 w-full" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -154,36 +189,62 @@ export default function Login() {
           <DialogHeader>
             <DialogTitle>Create New Password</DialogTitle>
             <DialogDescription>
-              Enter your email and choose a new password.
+              Enter your employee code and choose a new password.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Email</Label>
+              <Label>Employee Code</Label>
               <Input
-                type="email"
-                value={resetEmail}
-                onChange={(e) => setResetEmail(e.target.value)}
+                type="text"
+                value={resetEmployeeCode}
+                onChange={(e) => setResetEmployeeCode(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
               <Label>New Password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label>Confirm Password</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowConfirmPassword(!showConfirmPassword)
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
