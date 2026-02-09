@@ -31,7 +31,7 @@ export default function AddEditTask() {
   const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
-    projectId: projectId || "",
+    projectId: String(projectId || ""),
     keyStepId: "",
     taskName: "",
     description: "",
@@ -43,72 +43,101 @@ export default function AddEditTask() {
     taskMembers: [] as string[],
   });
 
-  // Load initial data
+  // Load initial data - employees and projects
   useEffect(() => {
-    apiFetch("/api/employees")
-      .then(r => {
-        if (!r.ok) throw new Error(`API error: ${r.status}`);
-        return r.json();
-      })
-      .then(data => setEmployees(Array.isArray(data) ? data : []))
-      .catch(err => {
-        console.error("Failed to load employees:", err);
-        setEmployees([]);
-      });
+    let isMounted = true;
 
-    apiFetch("/api/projects")
-      .then(r => {
+    Promise.all([
+      apiFetch("/api/employees").then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      }),
+      apiFetch("/api/projects").then(r => {
         if (!r.ok) throw new Error(`API error: ${r.status}`);
         return r.json();
       })
-      .then(data => setProjects(Array.isArray(data) ? data : []))
+    ])
+      .then(([empData, projData]) => {
+        if (!isMounted) return;
+        setEmployees(Array.isArray(empData) ? empData : []);
+        setProjects(Array.isArray(projData) ? projData : []);
+      })
       .catch(err => {
-        console.error("Failed to load projects:", err);
+        if (!isMounted) return;
+        console.error("Failed to load data:", err);
+        setEmployees([]);
         setProjects([]);
       });
 
-    // If editing, load task data
-    if (taskId) {
-      apiFetch(`/api/task/${taskId}`)
-        .then(r => {
-          if (!r.ok) throw new Error(`API error: ${r.status}`);
-          return r.json();
-        })
-        .then((task: any) => {
-          setForm({
-            projectId: task.projectId || "",
-            keyStepId: task.keyStepId || "",
-            taskName: task.taskName || "",
-            description: task.description || "",
-            startDate: task.startDate || "",
-            endDate: task.endDate || "",
-            status: task.status || "pending",
-            priority: task.priority || "medium",
-            assignerId: task.assignerId || "",
-            taskMembers: task.taskMembers || [],
-          });
-          setSubtasks(Array.isArray(task.subtasks) ? task.subtasks : []);
-        })
-        .catch(err => {
-          console.error("Failed to load task:", err);
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Load task data when editing
+  useEffect(() => {
+    if (!taskId) return;
+
+    let isMounted = true;
+
+    apiFetch(`/api/task/${taskId}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      })
+      .then((task: any) => {
+        if (!isMounted) return;
+        setForm({
+          projectId: String(task.projectId || ""),
+          keyStepId: String(task.keyStepId || ""),
+          taskName: task.taskName || "",
+          description: task.description || "",
+          startDate: task.startDate || "",
+          endDate: task.endDate || "",
+          status: task.status || "pending",
+          priority: task.priority || "medium",
+          assignerId: String(task.assignerId || ""),
+          taskMembers: task.taskMembers || [],
         });
-    }
+        setSubtasks(Array.isArray(task.subtasks) ? task.subtasks : []);
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        console.error("Failed to load task:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [taskId]);
 
   // Load milestones when project changes
   useEffect(() => {
-    if (!form.projectId) return;
+    if (!form.projectId) {
+      setMilestones([]);
+      return;
+    }
+
+    let isMounted = true;
 
     apiFetch(`/api/projects/${form.projectId}/key-steps`)
       .then(r => {
         if (!r.ok) throw new Error(`API error: ${r.status}`);
         return r.json();
       })
-      .then(data => setMilestones(Array.isArray(data) ? data : []))
+      .then(data => {
+        if (!isMounted) return;
+        setMilestones(Array.isArray(data) ? data : []);
+      })
       .catch(err => {
+        if (!isMounted) return;
         console.error("Failed to load milestones:", err);
         setMilestones([]);
       });
+
+    return () => {
+      isMounted = false;
+    };
   }, [form.projectId]);
 
   const addSubtask = () => {
@@ -188,7 +217,7 @@ export default function AddEditTask() {
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Select Project" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[320px] overflow-y-auto">
                   {projects.length > 0 ? (
                     projects.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>)
                   ) : (

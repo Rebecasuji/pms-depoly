@@ -3,7 +3,7 @@ import { useAuth } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+// Removed Checkbox (Remember me) — not used anymore
 import {
   Dialog,
   DialogContent,
@@ -139,15 +139,7 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox id="remember" />
-              <label
-                htmlFor="remember"
-                className="text-sm font-medium leading-none"
-              >
-                Remember me
-              </label>
-            </div>
+            {/* Remember me removed */}
 
             <Button type="submit" className="h-11 w-full" disabled={isLoading}>
               {isLoading ? (

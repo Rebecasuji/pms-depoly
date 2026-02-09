@@ -115,6 +115,24 @@ export async function registerRoutes(
     }
   });
 
+  // GET UNIQUE DEPARTMENTS
+  app.get("/api/departments", async (_req, res) => {
+    try {
+      const rows = await db
+        .select({ department: employees.department })
+        .from(employees)
+        .where(sql`${employees.department} IS NOT NULL AND ${employees.department} != ''`)
+        .groupBy(employees.department)
+        .orderBy(employees.department);
+
+      const departments = rows.map(r => r.department).filter(Boolean);
+      res.json(departments);
+    } catch (err) {
+      console.error("Departments fetch error:", err);
+      res.status(500).json([]);
+    }
+  });
+
   // LOGIN - accepts employee code + password
   app.post("/api/login", async (req, res) => {
     try {
@@ -195,130 +213,101 @@ export async function registerRoutes(
       const isAdmin = req.user?.role === "ADMIN";
 
       let projectRows: any[] = [];
+      let departments: any[] = [];
+      let teamMembers: any[] = [];
+      let vendors: any[] = [];
 
+      // Fetch all projects
+      const allProjects = await db
+        .select({
+          id: projects.id,
+          title: projects.title,
+          projectCode: projects.projectCode,
+          description: projects.description,
+          clientName: projects.clientName,
+          status: projects.status,
+          progress: projects.progress,
+          startDate: projects.startDate,
+          endDate: projects.endDate,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+        })
+        .from(projects)
+        .orderBy(projects.createdAt);
+
+      if (!allProjects.length) return res.json([]);
+
+      const allProjectIds = allProjects.map((p) => p.id);
+
+      // Fetch all related data in parallel - ONCE
+      const [deptResults, teamResults, vendorResults, membershipResults] = await Promise.all([
+        db.select().from(projectDepartments).where(inArray(projectDepartments.projectId, allProjectIds)),
+        db.select().from(projectTeamMembers).where(inArray(projectTeamMembers.projectId, allProjectIds)),
+        db.select().from(projectVendors).where(inArray(projectVendors.projectId, allProjectIds)),
+        !isAdmin ? db.select({ projectId: projectTeamMembers.projectId }).from(projectTeamMembers).where(eq(projectTeamMembers.employeeId, requestingEmployeeId)) : Promise.resolve([]),
+      ]);
+
+      departments = deptResults;
+      teamMembers = teamResults;
+      vendors = vendorResults;
+
+      // Build maps for O(1) lookups
+      const departmentMap = new Map();
+      const teamMap = new Map();
+      const vendorMap = new Map();
+
+      // Normalize and index related rows for robust comparisons
+      departments.forEach((d) => {
+        const pid = String(d.projectId);
+        const dept = (d.department || "").toString().trim().toLowerCase();
+        if (!departmentMap.has(pid)) departmentMap.set(pid, [] as string[]);
+        if (dept) departmentMap.get(pid).push(dept);
+      });
+
+      teamMembers.forEach((m) => {
+        const pid = String(m.projectId);
+        const empId = String(m.employeeId);
+        if (!teamMap.has(pid)) teamMap.set(pid, [] as string[]);
+        teamMap.get(pid).push(empId);
+      });
+
+      vendors.forEach((v) => {
+        const pid = String(v.projectId);
+        if (!vendorMap.has(pid)) vendorMap.set(pid, [] as string[]);
+        vendorMap.get(pid).push(v.vendorName);
+      });
+
+      // Filter projects based on access level
       if (isAdmin) {
-        projectRows = await db
-          .select({
-            id: projects.id,
-            title: projects.title,
-            projectCode: projects.projectCode,
-            description: projects.description,
-            clientName: projects.clientName,
-            status: projects.status,
-            progress: projects.progress,
-            startDate: projects.startDate,
-            endDate: projects.endDate,
-            createdAt: projects.createdAt,
-            updatedAt: projects.updatedAt,
-          })
-          .from(projects)
-          .orderBy(projects.createdAt);
+        projectRows = allProjects;
       } else {
         if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
 
-        // Get projects where employee is assigned as team member
-        const membership = await db
-          .select({ projectId: projectTeamMembers.projectId })
-          .from(projectTeamMembers)
-          .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
-
-        const teamProjectIds = new Set(membership.map((m) => m.projectId));
-
-        // Get all projects with their departments
-        const allProjects = await db
-          .select({
-            id: projects.id,
-            title: projects.title,
-            projectCode: projects.projectCode,
-            description: projects.description,
-            clientName: projects.clientName,
-            status: projects.status,
-            progress: projects.progress,
-            startDate: projects.startDate,
-            endDate: projects.endDate,
-            createdAt: projects.createdAt,
-            updatedAt: projects.updatedAt,
-          })
-          .from(projects)
-          .orderBy(projects.createdAt);
-
-        if (!allProjects.length) return res.json([]);
-
-        const allProjectIds = allProjects.map((p) => p.id);
-
-        // Get departments for all projects
-        const departments = await db
-          .select()
-          .from(projectDepartments)
-          .where(inArray(projectDepartments.projectId, allProjectIds));
-
-        // Filter projects: include if employee is on team OR if department matches employee's department
-        const departmentMap = new Map();
-        departments.forEach((d) => {
-          if (!departmentMap.has(d.projectId)) {
-            departmentMap.set(d.projectId, []);
-          }
-          departmentMap.get(d.projectId).push(d.department);
-        });
+        // Normalize requester's department for case-insensitive matching
+        const reqDeptNorm = String(requestingEmployeeDepartment || "").trim().toLowerCase();
+        const teamProjectIds = new Set((membershipResults as any[]).map((m) => String(m.projectId)));
 
         projectRows = allProjects.filter((p) => {
-          const isTeamMember = teamProjectIds.has(p.id);
-          const projectDepartments = departmentMap.get(p.id) || [];
-          const isDepartmentMatch = requestingEmployeeDepartment && projectDepartments.includes(requestingEmployeeDepartment);
-          return isTeamMember || isDepartmentMatch;
+          const pid = String(p.id);
+          const isTeamMember = teamProjectIds.has(pid);
+          const projectDepartments = departmentMap.get(pid) || [];
+          const isDepartmentMatch = reqDeptNorm && projectDepartments.includes(reqDeptNorm);
+          return Boolean(isTeamMember || isDepartmentMatch);
         });
-
-        if (projectRows.length === 0) return res.json([]);
       }
 
-      if (!projectRows.length) return res.json([]);
-
-      const projectIds = projectRows.map((p) => p.id);
-
-      // Get departments for each project
-      const departments = await db
-        .select()
-        .from(projectDepartments)
-        .where(inArray(projectDepartments.projectId, projectIds));
-
-      // Get team members for each project
-      const teamMembers = await db
-        .select()
-        .from(projectTeamMembers)
-        .where(inArray(projectTeamMembers.projectId, projectIds));
-
-      // Get vendors for each project
-      const vendors = await db
-        .select()
-        .from(projectVendors)
-        .where(inArray(projectVendors.projectId, projectIds));
-
-      const result = projectRows.map((p) => {
-        const depts = departments
-          .filter((d) => d.projectId === p.id)
-          .map((d) => d.department);
-
-        const team = teamMembers
-          .filter((m) => m.projectId === p.id)
-          .map((m) => m.employeeId);
-
-        const vendorList = vendors
-          .filter((v) => v.projectId === p.id)
-          .map((v) => v.vendorName);
-
-        return {
-          ...p,
-          department: depts,
-          team,
-          vendors: vendorList,
-        };
-      });
+      // Build response with cached data
+      const result = projectRows.map((p) => ({
+        ...p,
+        department: departmentMap.get(p.id) || [],
+        team: teamMap.get(p.id) || [],
+        vendors: vendorMap.get(p.id) || [],
+      }));
 
       res.json(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error("Projects fetch error:", errorMessage);
-      console.error("Full error:", err);
       res.status(500).json({ error: "Failed to fetch projects", details: errorMessage });
     }
   });
@@ -395,7 +384,7 @@ export async function registerRoutes(
           db.insert(projectDepartments).values(
             department.filter(d => d?.trim()).map((dept: string) => ({
               projectId,
-              department: dept.trim(),
+              department: dept.trim().toLowerCase(),
             }))
           )
         );
@@ -519,7 +508,7 @@ export async function registerRoutes(
         await db.insert(projectDepartments).values(
           department.map((dept: string) => ({
             projectId: id,
-            department: dept,
+            department: String(dept).trim().toLowerCase(),
           }))
         );
       }
@@ -1052,25 +1041,37 @@ export async function registerRoutes(
 
       const taskIds = tasks.map((t) => t.id);
 
-      // Fetch members for all tasks
-      const members = await db
-        .select()
-        .from(taskMembers)
-        .where(inArray(taskMembers.taskId, taskIds));
+      // Fetch members and subtasks in parallel for better performance
+      const [members, subs] = await Promise.all([
+        db
+          .select()
+          .from(taskMembers)
+          .where(inArray(taskMembers.taskId, taskIds)),
+        db
+          .select()
+          .from(subtasks)
+          .where(inArray(subtasks.taskId, taskIds)),
+      ]);
 
-      // Fetch subtasks for all tasks
-      const subs = await db
-        .select()
-        .from(subtasks)
-        .where(inArray(subtasks.taskId, taskIds));
+      // Build maps for O(1) lookups instead of O(n) filtering
+      const memberMap = new Map<string, string[]>();
+      const subtaskMap = new Map<string, any[]>();
+
+      members.forEach((m) => {
+        if (!memberMap.has(m.taskId)) memberMap.set(m.taskId, []);
+        memberMap.get(m.taskId)!.push(m.employeeId);
+      });
+
+      subs.forEach((s) => {
+        if (!subtaskMap.has(s.taskId)) subtaskMap.set(s.taskId, []);
+        subtaskMap.get(s.taskId)!.push(s);
+      });
 
       // Build result with members and subtasks
       const result = tasks.map((task) => ({
         ...task,
-        assignedMembers: members
-          .filter((m) => m.taskId === task.id)
-          .map((m) => m.employeeId),
-        subtasks: subs.filter((s) => s.taskId === task.id),
+        assignedMembers: memberMap.get(task.id) || [],
+        subtasks: subtaskMap.get(task.id) || [],
       }));
 
       res.json(result);
@@ -1135,34 +1136,50 @@ export async function registerRoutes(
 
       const taskIds = tasks.map((t) => t.id);
 
-      const members = await db
-        .select({
-          taskId: taskMembers.taskId,
-          employeeId: taskMembers.employeeId,
-        })
-        .from(taskMembers)
-        .where(inArray(taskMembers.taskId, taskIds));
+      // Fetch members and subtasks in parallel
+      const [members, subs] = await Promise.all([
+        db
+          .select({
+            taskId: taskMembers.taskId,
+            employeeId: taskMembers.employeeId,
+          })
+          .from(taskMembers)
+          .where(inArray(taskMembers.taskId, taskIds)),
+        db
+          .select({
+            id: subtasks.id,
+            taskId: subtasks.taskId,
+            title: subtasks.title,
+            isCompleted: subtasks.isCompleted,
+            assignedTo: subtasks.assignedTo,
+          })
+          .from(subtasks)
+          .where(inArray(subtasks.taskId, taskIds)),
+      ]);
 
-      // Fetch subtasks for these tasks
-      const subs = await db
-        .select({
-          id: subtasks.id,
-          taskId: subtasks.taskId,
-          title: subtasks.title,
-          isCompleted: subtasks.isCompleted,
-          assignedTo: subtasks.assignedTo,
-        })
-        .from(subtasks)
-        .where(inArray(subtasks.taskId, taskIds));
+      // Build maps for O(1) lookups
+      const memberMap = new Map<string, string[]>();
+      const subtaskMap = new Map<string, any[]>();
+
+      members.forEach((m) => {
+        if (!memberMap.has(m.taskId)) memberMap.set(m.taskId, []);
+        memberMap.get(m.taskId)!.push(m.employeeId);
+      });
+
+      subs.forEach((s) => {
+        if (!subtaskMap.has(s.taskId)) subtaskMap.set(s.taskId, []);
+        subtaskMap.get(s.taskId)!.push({
+          id: s.id,
+          title: s.title,
+          isCompleted: s.isCompleted,
+          assignedTo: s.assignedTo ? [s.assignedTo] : [],
+        });
+      });
 
       const result = tasks.map((t) => ({
         ...t,
-        taskMembers: members
-          .filter((m) => m.taskId === t.id)
-          .map((m) => m.employeeId),
-        subtasks: subs
-          .filter((s) => s.taskId === t.id)
-          .map((s) => ({ id: s.id, title: s.title, isCompleted: s.isCompleted, assignedTo: s.assignedTo ? [s.assignedTo] : [] })),
+        taskMembers: memberMap.get(t.id) || [],
+        subtasks: subtaskMap.get(t.id) || [],
       }));
 
       res.json(result);

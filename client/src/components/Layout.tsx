@@ -53,6 +53,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Mock Data
 import { PROJECTS, USERS } from "@/lib/mockData";
+import { apiFetch, clearApiCache } from "@/lib/apiClient";
 import companyLogo from "@/pages/logo.jpg";
 
 
@@ -89,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (employeeCode?: string, password?: string) => {
-    const res = await fetch("/api/login", {
+    const res = await apiFetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ employeeCode, password }),
@@ -103,8 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      const token = localStorage.getItem("knockturn_token");
-      await fetch("/api/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      await apiFetch("/api/logout", { method: "POST" });
+      clearApiCache();
     } catch (e) {
       // ignore
     }
@@ -228,10 +229,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Refresh user profile from server
   const refreshProfile = async () => {
     try {
-      const token = localStorage.getItem("knockturn_token");
-      const res = await fetch("/api/me", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch("/api/me");
       if (res.ok) {
         const data = await res.json();
         setDisplayUser(data.user);

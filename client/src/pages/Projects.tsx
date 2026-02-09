@@ -55,6 +55,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { v4 as uuidv4 } from "uuid";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/components/Layout";
+import { apiFetch } from "@/lib/apiClient";
 
 export default function Projects() {
   const { toast } = useToast();
@@ -91,11 +92,7 @@ export default function Projects() {
   const [vendorInput, setVendorInput] = useState("");
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
 
-  const apiFetch = (url: string, opts?: RequestInit) => {
-    const token = localStorage.getItem("knockturn_token");
-    const headers = { ...(opts?.headers || {}), Authorization: token ? `Bearer ${token}` : "" } as Record<string, string>;
-    return fetch(url, { ...opts, headers });
-  };
+  // use shared apiFetch from lib/apiClient (includes caching, dedupe, auth)
 
   // FETCH PROJECTS
   const fetchProjects = async () => {
@@ -167,8 +164,8 @@ export default function Projects() {
 
   const fetchProjectFiles = async (projectId: string) => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/files`);
-      const data = await res.json();
+      const res = await apiFetch(`/api/projects/${projectId}/files`);
+      const data = res.ok ? await res.json() : [];
       setProjectFiles(prev => ({
         ...prev,
         [projectId]: data
@@ -352,7 +349,20 @@ export default function Projects() {
       setVendorInput("");
       setTeamMemberSearch("");
 
-      await fetchProjects();
+      // Update local state without refetching entire projects list for performance
+      try {
+        const json = await response.json();
+        if (modalMode === "edit" && editingId) {
+          // replace updated project in local state
+          setProjects((prev) => prev.map((p) => (String(p.id) === String(json.id) ? json : p)));
+        } else {
+          // prepend newly created project for immediate visibility
+          setProjects((prev) => [json, ...prev]);
+        }
+      } catch (e) {
+        // fallback: refetch if parsing fails
+        await fetchProjects();
+      }
       toast({
         title: modalMode === "edit" ? "Updated" : "Created",
         description: `Project "${titleTrimmed}" ${modalMode === "edit" ? "updated" : "created"}!`,
@@ -671,7 +681,7 @@ export default function Projects() {
                       ) : (
                         <div className="grid grid-cols-2 gap-2">
                           {formProject.team.map((id) => {
-                            const emp = employees.find((e) => e.id === id);
+                            const emp = employees.find((e) => String(e.id) === String(id));
                             return (
                               <div
                                 key={id}

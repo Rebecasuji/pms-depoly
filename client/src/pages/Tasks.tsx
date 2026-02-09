@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/apiClient";
 import {
   Dialog,
   DialogContent,
@@ -73,18 +74,18 @@ export default function Tasks() {
   /* ================= LOAD INITIAL DATA ================= */
 
   useEffect(() => {
-    fetch("/api/employees")
+    apiFetch("/api/employees")
       .then(r => r.json())
       .then(data => setEmployees(Array.isArray(data) ? data : []))
       .catch(() => setEmployees([]));
 
-    fetch("/api/projects", { headers: { Authorization: `Bearer ${localStorage.getItem("knockturn_token")}` } })
+    apiFetch("/api/projects")
       .then(r => r.json())
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
         setProjects(arr);
         if (arr.length > 0 && !projectId) {
-          setProjectId(arr[0].id);
+          setProjectId(String(arr[0].id));
         }
       })
       .catch(() => setProjects([]));
@@ -96,7 +97,7 @@ export default function Tasks() {
     if (!projectId) return;
 
     // Load Tasks
-    fetch(`/api/tasks/${projectId}`)
+    apiFetch(`/api/tasks/${projectId}`)
       .then(r => r.json())
       .then(data => setTasks(Array.isArray(data) ? data : []))
       .catch(() => setTasks([]));
@@ -104,7 +105,7 @@ export default function Tasks() {
     const loadMilestones = async () => {
       if (!projectId) return;
       try {
-        const data = await fetch(`/api/projects/${projectId}/key-steps`).then(r => r.json());
+        const data = await apiFetch(`/api/projects/${projectId}/key-steps`).then(r => r.json());
         setMilestones(Array.isArray(data) ? data : []);
       } catch {
         setMilestones([]);
@@ -112,7 +113,7 @@ export default function Tasks() {
     };
 
     // Load Milestones (Key Steps)
-    fetch(`/api/projects/${projectId}/key-steps`)
+    apiFetch(`/api/projects/${projectId}/key-steps`)
       .then(r => r.json())
       .then(data => setMilestones(Array.isArray(data) ? data : []))
       .catch(() => setMilestones([]));
@@ -145,8 +146,8 @@ export default function Tasks() {
   const confirmDelete = async () => {
     if (!taskToDelete) return;
     try {
-      await fetch(`/api/tasks/${taskToDelete.id}`, { method: "DELETE" });
-      const updated = await fetch(`/api/tasks/${projectId}`).then(r => r.json());
+      await apiFetch(`/api/tasks/${taskToDelete.id}`, { method: "DELETE" });
+      const updated = await apiFetch(`/api/tasks/${projectId}`).then(r => r.json());
       setTasks(Array.isArray(updated) ? updated : []);
       setOpenDeleteDialog(false);
       setTaskToDelete(null);

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -20,6 +21,20 @@ declare module "http" {
 /* ===============================
    MIDDLEWARE
 ================================ */
+
+// Enable gzip compression for all responses
+app.use(compression({
+  level: 6, // Balance between compression ratio and CPU usage
+  threshold: 1024, // Only compress responses larger than 1KB
+  filter: (req, res) => {
+    // Don't compress file uploads
+    if (req.headers['content-type']?.includes('multipart/form-data')) {
+      return false;
+    }
+    return compression.filter?.(req, res) ?? true;
+  },
+}));
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -29,6 +44,21 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Security headers for performance and security
+app.use((req, res, next) => {
+  // Cache control for static assets
+  if (req.path.startsWith('/public')) {
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+  // Cache API responses for GET requests (client-side cache)
+  else if (req.method === 'GET' && req.path.startsWith('/api')) {
+    res.set('Cache-Control', 'private, max-age=60'); // 1 minute cache
+  } else {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+  next();
+});
 
 /* ===============================
    LOGGER

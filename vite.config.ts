@@ -32,6 +32,23 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Optimization settings for faster builds and smaller bundles
+    minify: "esbuild", // Use esbuild which is built-in (faster than terser)
+    rollupOptions: {
+      output: {
+        // Code splitting for better caching
+        manualChunks: {
+          recharts: ["recharts"], // Separate large charting library
+          ui: ["react", "react-dom"], // Separate React bundles
+        },
+      },
+    },
+    // Chunk size warnings
+    chunkSizeWarningLimit: 1000,
+    // Enable sourcemaps for production debugging
+    sourcemap: false,
+    // CSS code splitting
+    cssCodeSplit: true,
   },
 
   server: {

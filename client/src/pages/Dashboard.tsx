@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [keySteps, setKeySteps] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
   const [expandedSections, setExpandedSections] = useState({ analytics: true });
   const [newProjectDialog, setNewProjectDialog] = useState(false);
 
@@ -65,10 +66,26 @@ export default function Dashboard() {
     startDate: "",
     endDate: "",
     status: "open" as const,
+    department: "" as string,
     vendors: "",
   });
 
   const dashboardRef = useRef<HTMLDivElement>(null);
+
+  // Fetch departments on mount
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        const res = await apiFetch("/api/departments");
+        if (!res.ok) throw new Error("Failed to fetch departments");
+        const data = await res.json();
+        setDepartments(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Fetch departments error:", err);
+      }
+    };
+    fetchDepartments();
+  }, []);
 
   // ---------------- PROJECTS ----------------
 
@@ -88,7 +105,7 @@ export default function Dashboard() {
   }, []);
 
   const getProjectName = (projectId: any) => {
-    const project = projects.find((p) => p.id === projectId);
+    const project = projects.find((p) => String(p.id) === String(projectId));
     return project ? project.title : "Unknown Project";
   };
 
@@ -160,6 +177,7 @@ export default function Dashboard() {
           startDate: newProject.startDate,
           endDate: newProject.endDate,
           status: newProject.status,
+          department: newProject.department ? [newProject.department] : [],
           vendors: newProject.vendors ? [newProject.vendors] : [],
           progress: 0,
           team: [],
@@ -175,6 +193,7 @@ export default function Dashboard() {
         startDate: "",
         endDate: "",
         status: "open",
+        department: "",
         vendors: "",
       });
       setNewProjectDialog(false);
@@ -226,14 +245,16 @@ export default function Dashboard() {
   ];
 
   // -------- GROUP KEY STEPS BY PROJECT (TOP STATS) --------
-  const groupedKeySteps = projects.map((project) => {
-    const steps = keySteps.filter((ks) => ks.projectId === project.id);
-    return {
-      projectId: project.id,
-      projectName: project.title,
-      steps,
-    };
-  }).filter(g => g.steps.length > 0);
+  const groupedKeySteps = projects
+    .map((project) => {
+      const steps = keySteps.filter((ks) => String(ks.projectId) === String(project.id));
+      return {
+        projectId: project.id,
+        projectName: project.title,
+        steps,
+      };
+    })
+    .filter((g) => g.steps.length > 0);
 
 
   // ---------------- RENDER ----------------
@@ -377,6 +398,27 @@ export default function Dashboard() {
                       setNewProject({ ...newProject, endDate: e.target.value })
                     }
                   />
+                </div>
+
+                <div>
+                  <Label>Department (visible to all members in this department)</Label>
+                  <Select
+                    value={newProject.department}
+                    onValueChange={(val: string) =>
+                      setNewProject({ ...newProject, department: val })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <Select

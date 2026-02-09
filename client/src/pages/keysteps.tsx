@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { apiFetch } from "@/lib/apiClient";
 
 interface KeyStep {
   id: string;
@@ -67,14 +68,14 @@ export default function KeySteps() {
   useEffect(() => {
     const savedProjectId = localStorage.getItem("selectedProjectId");
 
-    fetch(`${API_BASE}/api/projects`)
+    apiFetch(`/api/projects`)
       .then(async (r) => {
         if (!r.ok) throw new Error("Failed to load projects");
         return r.json();
       })
       .then((data) => {
         setProjects(data);
-        const idToUse = savedProjectId || (data.length > 0 ? data[0].id : "");
+        const idToUse = savedProjectId || (data.length > 0 ? String(data[0].id) : "");
         setSelectedProjectId(idToUse);
         setNewStep((prev) => ({ ...prev, projectId: idToUse }));
       })
@@ -85,13 +86,11 @@ export default function KeySteps() {
   useEffect(() => {
     if (!selectedProjectId) return;
 
-    const controller = new AbortController();
+    let isMounted = true;
 
     const fetchSteps = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/projects/${selectedProjectId}/key-steps`, {
-          signal: controller.signal,
-        });
+        const res = await apiFetch(`/api/projects/${selectedProjectId}/key-steps`);
 
         if (!res.ok) {
           const text = await res.text();
@@ -106,24 +105,27 @@ export default function KeySteps() {
         }
 
         const data = await res.json();
+        if (!isMounted) return;
         setKeySteps(Array.isArray(data) ? data : []);
 
         // Fetch children for each parent keystep
         if (Array.isArray(data)) {
           data.forEach((step: KeyStep) => {
             if (!step.parentKeyStepId) {
-              // Only fetch children for parent keysteps (those without a parent)
               fetchChildrenForStep(step.id);
             }
           });
         }
       } catch (err: any) {
-        if (err.name !== "AbortError") console.error("Fetch error details:", err);
+        if (!isMounted) return;
+        console.error("Fetch error:", err);
       }
     };
 
     fetchSteps();
-    return () => controller.abort();
+    return () => {
+      isMounted = false;
+    };
   }, [selectedProjectId]);
 
   const getProjectName = (id: string) => projects.find((p: any) => p.id === id)?.title || "Unknown Project";
@@ -131,7 +133,7 @@ export default function KeySteps() {
   // Fetch children for a keystep
   const fetchChildrenForStep = async (parentId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/key-steps/${parentId}/children`);
+      const res = await apiFetch(`/api/key-steps/${parentId}/children`);
       if (res.ok) {
         const children = await res.json();
         setChildKeySteps((prev) => ({ ...prev, [parentId]: children }));
@@ -169,7 +171,7 @@ export default function KeySteps() {
       
       console.log("🔵 SUBMITTING KEYSTEP:", payload);
       
-      const response = await fetch(`${API_BASE}/api/key-steps`, {
+      const response = await apiFetch(`/api/key-steps`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -233,7 +235,7 @@ export default function KeySteps() {
   const handleDeleteStep = async (id: string) => {
     if (!confirm("Are you sure you want to delete this step?")) return;
     try {
-      const response = await fetch(`${API_BASE}/api/key-steps/${id}`, { method: "DELETE" });
+      const response = await apiFetch(`/api/key-steps/${id}`, { method: "DELETE" });
       if (response.ok) {
         setKeySteps((prev) => prev.filter((s) => s.id !== id));
         // Clear children cache for this step
@@ -279,7 +281,7 @@ export default function KeySteps() {
         projectId: editingStep.projectId || selectedProjectId,
       };
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -365,7 +367,7 @@ export default function KeySteps() {
                 <SelectTrigger className="bg-white">
                   <SelectValue placeholder="Select Project" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   {projects.length > 0 ? (
                     projects.map((p: any) => (
                       <SelectItem key={p.id} value={String(p.id)}>
@@ -822,7 +824,7 @@ export default function KeySteps() {
                 onClick={async () => {
                   if (!stepToDelete) return;
                   try {
-                    const res = await fetch(`${API_BASE}/api/key-steps/${stepToDelete.id}`, {
+                    const res = await apiFetch(`/api/key-steps/${stepToDelete.id}`, {
                       method: "DELETE",
                     });
                     if (res.ok) {

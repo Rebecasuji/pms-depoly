@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/apiClient";
 import {
   Select,
   SelectContent,
@@ -41,7 +42,7 @@ export default function KeyStepsFullPage() {
   useEffect(() => {
     const savedProjectId = localStorage.getItem("selectedProjectId");
 
-    fetch("/api/projects", { headers: { Authorization: `Bearer ${localStorage.getItem("knockturn_token")}` } })
+    apiFetch("/api/projects")
       .then(async (r) => {
         if (!r.ok) throw new Error("Failed to load projects");
         return r.json();
@@ -58,11 +59,11 @@ export default function KeyStepsFullPage() {
   }, [toast]);
 
   // Load keysteps when project changes
-  useEffect(() => {
+  useEffect(() => { 
     if (!selectedProjectId) return;
     localStorage.setItem("selectedProjectId", selectedProjectId);
     
-    fetch(`/api/projects/${selectedProjectId}/key-steps`)
+    apiFetch(`/api/projects/${selectedProjectId}/key-steps`)
       .then(r => r.json())
       .then(data => {
         const rootSteps = Array.isArray(data) ? data.filter(ks => !ks.parentKeyStepId) : [];
@@ -84,7 +85,7 @@ export default function KeyStepsFullPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
       
-      const response = await fetch(`/api/key-steps/${parentId}/children`, { signal: controller.signal });
+      const response = await apiFetch(`/api/key-steps/${parentId}/children`, { signal: controller.signal });
       clearTimeout(timeoutId);
       
       if (!response.ok) {
@@ -121,13 +122,13 @@ export default function KeyStepsFullPage() {
     if (!window.confirm(`Delete "${title}"?`)) return;
 
     try {
-      const response = await fetch(`/api/key-steps/${id}`, { method: "DELETE" });
+      const response = await apiFetch(`/api/key-steps/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Failed to delete");
 
       toast({ title: "Deleted", description: "Key step deleted successfully" });
       
       if (selectedProjectId) {
-        fetch(`/api/projects/${selectedProjectId}/key-steps`)
+        apiFetch(`/api/projects/${selectedProjectId}/key-steps`)
           .then(r => r.json())
           .then(data => {
             const rootSteps = Array.isArray(data) ? data.filter(ks => !ks.parentKeyStepId) : [];
@@ -172,7 +173,7 @@ export default function KeyStepsFullPage() {
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-[300px] overflow-y-auto">
                 {projects.length > 0 ? (
                   projects.map((p: any) => (
                     <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>

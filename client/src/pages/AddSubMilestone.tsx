@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch } from "@/lib/apiClient";
 import {
   Select,
   SelectContent,
@@ -45,7 +46,7 @@ export default function AddSubMilestone() {
       return;
     }
 
-    fetch(`/api/key-steps/${parentId}`)
+    apiFetch(`/api/key-steps/${parentId}`)
       .then(r => r.json())
       .then((data: any) => {
         setParentKeyStep(data);
@@ -96,7 +97,7 @@ export default function AddSubMilestone() {
 
       console.log("🔵 ADDSUBMILESTONE PAYLOAD:", payload);
 
-      const response = await fetch("/api/key-steps", {
+      const response = await apiFetch("/api/key-steps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
