@@ -34,6 +34,7 @@ export const employees = pgTable("employees", {
   empCode: text("emp_code").unique(),
   name: text("name").notNull(),
   designation: text("designation"),
+  department: text("department"),
   email: text("email"),
   phone: text("phone"),
   createdAt: timestamp("created_at").defaultNow(),

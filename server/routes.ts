@@ -98,8 +98,12 @@ export async function registerRoutes(
       const rows = await db
         .select({
           id: employees.id,
+          empCode: employees.empCode,
           name: employees.name,
           designation: employees.designation,
+          department: employees.department,
+          email: employees.email,
+          phone: employees.phone,
         })
         .from(employees)
         .orderBy(employees.name);
@@ -187,6 +191,7 @@ export async function registerRoutes(
   app.get("/api/projects", requireAuth, async (req: any, res) => {
     try {
       const requestingEmployeeId = req.employee?.id || null;
+      const requestingEmployeeDepartment = req.employee?.department || null;
       const isAdmin = req.user?.role === "ADMIN";
 
       let projectRows: any[] = [];
@@ -211,15 +216,16 @@ export async function registerRoutes(
       } else {
         if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
 
+        // Get projects where employee is assigned as team member
         const membership = await db
           .select({ projectId: projectTeamMembers.projectId })
           .from(projectTeamMembers)
           .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
 
-        const allowedProjectIds = membership.map((m) => m.projectId);
-        if (allowedProjectIds.length === 0) return res.json([]);
+        const teamProjectIds = new Set(membership.map((m) => m.projectId));
 
-        projectRows = await db
+        // Get all projects with their departments
+        const allProjects = await db
           .select({
             id: projects.id,
             title: projects.title,
@@ -234,8 +240,35 @@ export async function registerRoutes(
             updatedAt: projects.updatedAt,
           })
           .from(projects)
-          .where(inArray(projects.id, allowedProjectIds))
           .orderBy(projects.createdAt);
+
+        if (!allProjects.length) return res.json([]);
+
+        const allProjectIds = allProjects.map((p) => p.id);
+
+        // Get departments for all projects
+        const departments = await db
+          .select()
+          .from(projectDepartments)
+          .where(inArray(projectDepartments.projectId, allProjectIds));
+
+        // Filter projects: include if employee is on team OR if department matches employee's department
+        const departmentMap = new Map();
+        departments.forEach((d) => {
+          if (!departmentMap.has(d.projectId)) {
+            departmentMap.set(d.projectId, []);
+          }
+          departmentMap.get(d.projectId).push(d.department);
+        });
+
+        projectRows = allProjects.filter((p) => {
+          const isTeamMember = teamProjectIds.has(p.id);
+          const projectDepartments = departmentMap.get(p.id) || [];
+          const isDepartmentMatch = requestingEmployeeDepartment && projectDepartments.includes(requestingEmployeeDepartment);
+          return isTeamMember || isDepartmentMatch;
+        });
+
+        if (projectRows.length === 0) return res.json([]);
       }
 
       if (!projectRows.length) return res.json([]);
@@ -299,7 +332,7 @@ export async function registerRoutes(
         department = [],
         description,
         clientName,
-        status = "open",
+        status = "Planned",
         startDate,
         endDate,
         progress = 0,
@@ -307,72 +340,95 @@ export async function registerRoutes(
         vendors: vendorList = [],
       } = req.body;
 
-      console.log("[POST /api/projects] Request user role:", req.user?.role, "Team array:", team);
-
-      // Validate required fields
-      if (!title) {
-        return res.status(400).json({ error: "Title is required" });
-      }
-      if (!projectCode) {
-        return res.status(400).json({ error: "Project code is required" });
-      }
-      if (!startDate || !endDate) {
-        return res.status(400).json({ error: "Start date and end date are required" });
+      // Validate required fields: title, startDate, endDate
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: "Project title is required" });
       }
 
-      // Convert dates to string format (YYYY-MM-DD) for DATE column
+      if (!startDate) {
+        return res.status(400).json({ error: "Start date is required" });
+      }
+
+      if (!endDate) {
+        return res.status(400).json({ error: "End date is required" });
+      }
+
       const formatDate = (date: any) => {
-        const d = new Date(date);
-        return d.toISOString().split('T')[0];
+        if (!date) return null;
+        try {
+          const d = new Date(date);
+          return d.toISOString().split('T')[0];
+        } catch {
+          return null;
+        }
       };
 
-      // Create the project
+      // Generate projectCode only if provided
+      const finalProjectCode = projectCode?.trim() || `P-${Date.now()}`;
+
+      // Format required dates
+      const finalStartDate = formatDate(startDate);
+      const finalEndDate = formatDate(endDate);
+
+      // Create the project - minimal payload for speed
       const [created] = await db
         .insert(projects)
         .values({
-          title,
-          projectCode,
-          clientName: clientName || null,
-          description: description || null,
-          status,
-          progress: Number(progress) || 0,
-          startDate: formatDate(startDate) as any,
-          endDate: formatDate(endDate) as any,
+          title: title.trim(),
+          projectCode: finalProjectCode,
+          clientName: clientName?.trim() || null,
+          description: description?.trim() || null,
+          status: status || "Planned",
+          progress: Math.min(100, Math.max(0, Number(progress) || 0)),
+          startDate: finalStartDate as any,
+          endDate: finalEndDate as any,
         })
         .returning();
 
-      // Add departments
+      // Batch insert all related records efficiently
+      const projectId = created.id;
+      const insertPromises: Promise<any>[] = [];
+
+      // Only add if not empty
       if (Array.isArray(department) && department.length > 0) {
-        await db.insert(projectDepartments).values(
-          department.map((dept: string) => ({
-            projectId: created.id,
-            department: dept,
-          }))
+        insertPromises.push(
+          db.insert(projectDepartments).values(
+            department.filter(d => d?.trim()).map((dept: string) => ({
+              projectId,
+              department: dept.trim(),
+            }))
+          )
         );
       }
 
-      // Add team members (any authenticated user—both ADMIN and EMPLOYEE—can assign team members)
       if (Array.isArray(team) && team.length > 0) {
-        console.log("[POST /api/projects] Assigning team members. User role:", req.user?.role);
-        await db.insert(projectTeamMembers).values(
-          team.map((empId: string) => ({
-            projectId: created.id,
-            employeeId: empId,
-          }))
+        insertPromises.push(
+          db.insert(projectTeamMembers).values(
+            team.filter(t => t?.trim()).map((empId: string) => ({
+              projectId,
+              employeeId: empId.trim(),
+            }))
+          )
         );
       }
 
-      // Add vendors
       if (Array.isArray(vendorList) && vendorList.length > 0) {
-        await db.insert(projectVendors).values(
-          vendorList.map((vendor: string) => ({
-            projectId: created.id,
-            vendorName: vendor,
-          }))
+        insertPromises.push(
+          db.insert(projectVendors).values(
+            vendorList.filter(v => v?.trim()).map((vendor: string) => ({
+              projectId,
+              vendorName: vendor.trim(),
+            }))
+          )
         );
       }
 
-      // Return project with related data
+      // Execute all batch inserts in parallel
+      if (insertPromises.length > 0) {
+        await Promise.all(insertPromises);
+      }
+
+      // Return minimal project data
       const result = {
         ...created,
         department: department || [],
@@ -381,11 +437,21 @@ export async function registerRoutes(
       };
 
       res.json(result);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (err: any) {
+      let errorMessage = err instanceof Error ? err.message : String(err);
+      let statusCode = 500;
+
+      // Check for duplicate projectCode error (PostgreSQL error code 23505 = unique violation)
+      if (err.code === '23505' || err.constraint === 'projects_project_code_key') {
+        errorMessage = `Project code '${finalProjectCode}' already exists. Please use a different project code or leave it empty to auto-generate.`;
+        statusCode = 409; // Conflict
+      }
+
       console.error("Projects insert error:", errorMessage);
-      console.error("Full error:", err);
-      res.status(500).json({ error: "Failed to create project", details: errorMessage });
+      if (statusCode !== 409) {
+        console.error("Full error:", err);
+      }
+      res.status(statusCode).json({ error: "Failed to create project", details: errorMessage });
     }
   });
 
@@ -407,6 +473,19 @@ export async function registerRoutes(
         vendors: vendorList = [],
       } = req.body;
 
+      // Validate required fields
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: "Project title is required" });
+      }
+
+      if (!startDate) {
+        return res.status(400).json({ error: "Start date is required" });
+      }
+
+      if (!endDate) {
+        return res.status(400).json({ error: "End date is required" });
+      }
+
       // Convert dates to string format (YYYY-MM-DD) for DATE column
       const formatDate = (date: any) => {
         if (!date) return undefined;
@@ -422,10 +501,9 @@ export async function registerRoutes(
         status: status || "open",
         progress: Number(progress) || 0,
         updatedAt: new Date(),
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate),
       };
-
-      if (startDate) updateData.startDate = formatDate(startDate);
-      if (endDate) updateData.endDate = formatDate(endDate);
 
       const [updated] = await db
         .update(projects)
@@ -936,6 +1014,110 @@ export async function registerRoutes(
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error("Task delete error:", errorMessage);
       res.status(500).json({ message: "Task delete failed", details: errorMessage });
+    }
+  });
+
+  // BULK FETCH ALL TASKS (for authorized projects)
+  app.get("/api/tasks/bulk", requireAuth, async (req: any, res) => {
+    try {
+      const requestingEmployeeId = req.employee?.id || null;
+      const isAdmin = req.user?.role === "ADMIN";
+
+      // First, get all projects the user can access
+      let projectIds: string[] = [];
+      
+      if (isAdmin) {
+        const allProjects = await db.select({ id: projects.id }).from(projects);
+        projectIds = allProjects.map((p) => p.id);
+      } else {
+        if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
+        
+        const membership = await db
+          .select({ projectId: projectTeamMembers.projectId })
+          .from(projectTeamMembers)
+          .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
+        
+        projectIds = membership.map((m) => m.projectId);
+      }
+
+      if (projectIds.length === 0) return res.json([]);
+
+      // Now get all tasks for these projects
+      const tasks = await db
+        .select()
+        .from(projectTasks)
+        .where(inArray(projectTasks.projectId, projectIds));
+
+      if (!tasks.length) return res.json([]);
+
+      const taskIds = tasks.map((t) => t.id);
+
+      // Fetch members for all tasks
+      const members = await db
+        .select()
+        .from(taskMembers)
+        .where(inArray(taskMembers.taskId, taskIds));
+
+      // Fetch subtasks for all tasks
+      const subs = await db
+        .select()
+        .from(subtasks)
+        .where(inArray(subtasks.taskId, taskIds));
+
+      // Build result with members and subtasks
+      const result = tasks.map((task) => ({
+        ...task,
+        assignedMembers: members
+          .filter((m) => m.taskId === task.id)
+          .map((m) => m.employeeId),
+        subtasks: subs.filter((s) => s.taskId === task.id),
+      }));
+
+      res.json(result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Bulk tasks fetch error:", errorMessage);
+      res.status(500).json({ error: "Failed to fetch tasks", details: errorMessage });
+    }
+  });
+
+  // BULK FETCH ALL KEY STEPS (for authorized projects)
+  app.get("/api/keysteps/bulk", requireAuth, async (req: any, res) => {
+    try {
+      const requestingEmployeeId = req.employee?.id || null;
+      const isAdmin = req.user?.role === "ADMIN";
+
+      // First, get all projects the user can access
+      let projectIds: string[] = [];
+      
+      if (isAdmin) {
+        const allProjects = await db.select({ id: projects.id }).from(projects);
+        projectIds = allProjects.map((p) => p.id);
+      } else {
+        if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
+        
+        const membership = await db
+          .select({ projectId: projectTeamMembers.projectId })
+          .from(projectTeamMembers)
+          .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
+        
+        projectIds = membership.map((m) => m.projectId);
+      }
+
+      if (projectIds.length === 0) return res.json([]);
+
+      // Get all keysteps for these projects
+      const steps = await db
+        .select()
+        .from(keySteps)
+        .where(inArray(keySteps.projectId, projectIds))
+        .orderBy(keySteps.createdAt);
+
+      res.json(steps);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Bulk keysteps fetch error:", errorMessage);
+      res.status(500).json({ error: "Failed to fetch keysteps", details: errorMessage });
     }
   });
 

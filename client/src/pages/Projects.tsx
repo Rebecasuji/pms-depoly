@@ -54,9 +54,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { v4 as uuidv4 } from "uuid";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/components/Layout";
 
 export default function Projects() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
+  const userDepartment = user?.department || null;
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -65,6 +69,10 @@ export default function Projects() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | 'saveAs'>('create');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // For non-admins, default to "all" so backend filters by department
+  // Admins can see truly all projects with "all"
+  const [departmentFilter, setDepartmentFilter] = useState<string>(isAdmin ? "all" : "all");
   const [formProject, setFormProject] = useState({
     title: "",
     projectCode: "",
@@ -74,14 +82,14 @@ export default function Projects() {
     startDate: "",
     endDate: "",
     progress: 0,
-    status: "Planned", // Explicitly added status
+    status: "Planned",
     team: [] as string[],
     vendors: [] as string[]
   });
   const [uploadingProject, setUploadingProject] = useState<string | null>(null);
   const [projectFiles, setProjectFiles] = useState<Record<string, any[]>>({});
-  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
   const [vendorInput, setVendorInput] = useState("");
+  const [teamMemberSearch, setTeamMemberSearch] = useState("");
 
   const apiFetch = (url: string, opts?: RequestInit) => {
     const token = localStorage.getItem("knockturn_token");
@@ -130,13 +138,30 @@ export default function Projects() {
     }));
   };
 
+  // Fetch employees data
+  const fetchEmployees = async () => {
+    try {
+      const empRes = await apiFetch('/api/employees');
+      if (!empRes.ok) {
+        console.error("Failed to fetch employees:", empRes.status);
+        setEmployees([]);
+      } else {
+        const empData = await empRes.json();
+        console.log("Loaded employees:", empData);
+        setEmployees(Array.isArray(empData) ? empData : []);
+      }
+    } catch (err) {
+      console.error("Error fetching employees:", err);
+      setEmployees([]);
+    }
+  };
 
   useEffect(() => {
-    fetch('/api/employees')
-      .then(r => r.json())
-      .then(data => setEmployees(data))
-      .catch(console.error);
+    const loadInitialData = async () => {
+      await fetchEmployees();
+    };
 
+    loadInitialData();
     fetchProjects();
   }, []);
 
@@ -171,6 +196,7 @@ export default function Projects() {
   const handleOpenCreate = () => {
     setModalMode("create");
     setEditingId(null);
+    setShowAdvanced(false);
     setFormProject({
       title: "",
       projectCode: "",
@@ -180,11 +206,15 @@ export default function Projects() {
       startDate: "",
       endDate: "",
       progress: 0,
-      status: "Planned", // Explicitly reset status
+      status: "Planned",
       team: [],
       vendors: []
     });
-    setOpenDialog(true);
+    setTeamMemberSearch("");
+    // Refresh employees before opening dialog
+    fetchEmployees().then(() => {
+      setOpenDialog(true);
+    });
   };
 
   const handleFileUpload = async (projectId: string, file: File) => {
@@ -226,40 +256,46 @@ export default function Projects() {
       vendors: project.vendors || [],
     });
 
-    setOpenDialog(true);
+    setTeamMemberSearch("");
+    // Refresh employees before opening dialog
+    fetchEmployees().then(() => {
+      setOpenDialog(true);
+    });
   };
 
-  // ✅ FIXED SAVE PROJECT
+  // OPTIMIZED SAVE PROJECT - minimal validation, fast execution
   const handleSaveProject = async () => {
-    if (!formProject.title || !formProject.startDate || !formProject.endDate) {
-      toast({ variant: "destructive", title: "Validation Error", description: "Please fill required fields" });
+    const titleTrimmed = formProject.title?.trim();
+    if (!titleTrimmed) {
+      toast({ variant: "destructive", title: "Error", description: "Project name is required" });
+      return;
+    }
+
+    if (!formProject.startDate) {
+      toast({ variant: "destructive", title: "Error", description: "Start date is required" });
+      return;
+    }
+
+    if (!formProject.endDate) {
+      toast({ variant: "destructive", title: "Error", description: "End date is required" });
       return;
     }
 
     try {
-      const projectId = editingId || uuidv4();
-      const projectCode =
-        modalMode !== "edit"
-          ? formProject.projectCode || `P-${Date.now()}`
-          : formProject.projectCode;
-
-      // FIXED payload: send empty arrays/strings instead of null
+      // Only send title as required; other fields are optional
       const payload = {
-        title: formProject.title,
-        projectCode,
-        clientName: formProject.clientName,
-        department: formProject.department,
-        description: formProject.description,
-        status: formProject.status,
-        startDate: formProject.startDate,
-        endDate: formProject.endDate,
-        progress: Number(formProject.progress),
-        team: formProject.team,
-        vendors: formProject.vendors,
+        title: titleTrimmed,
+        projectCode: formProject.projectCode?.trim() || "",
+        clientName: formProject.clientName?.trim() || "",
+        department: formProject.department || [],
+        description: formProject.description?.trim() || "",
+        status: formProject.status || "Planned",
+        startDate: formProject.startDate || "",
+        endDate: formProject.endDate || "",
+        progress: Number(formProject.progress) || 0,
+        team: formProject.team || [],
+        vendors: formProject.vendors || [],
       };
-
-
-      console.log("Saving project payload:", payload);
 
       let response;
       if (modalMode === "edit" && editingId) {
@@ -277,23 +313,53 @@ export default function Projects() {
       }
 
       if (!response.ok) {
-        const text = await response.text();
-        console.error("Save failed response:", text);
-        throw new Error(text || "Save failed");
+        let errorMessage = "Failed to save project";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.details || errorData.error || errorMessage;
+          if (response.status === 409) {
+            toast({
+              variant: "destructive",
+              title: "Duplicate Project Code",
+              description: "This code exists. Leave empty to auto-generate.",
+            });
+            return;
+          }
+        } catch (e) {
+          const text = await response.text();
+          errorMessage = text || errorMessage;
+        }
+        toast({ variant: "destructive", title: "Error", description: errorMessage });
+        return;
       }
 
-      await fetchProjects();
       setOpenDialog(false);
       setEditingId(null);
       setModalMode("create");
+      setFormProject({
+        title: "",
+        projectCode: "",
+        department: [],
+        clientName: "",
+        description: "",
+        startDate: "",
+        endDate: "",
+        progress: 0,
+        status: "Planned",
+        team: [],
+        vendors: [],
+      });
+      setVendorInput("");
+      setTeamMemberSearch("");
 
+      await fetchProjects();
       toast({
         title: modalMode === "edit" ? "Updated" : "Created",
-        description: `Project "${formProject.title}" ${modalMode === "edit" ? "updated" : "created"} successfully!`,
+        description: `Project "${titleTrimmed}" ${modalMode === "edit" ? "updated" : "created"}!`,
       });
     } catch (error) {
-      console.error("Failed to save project:", error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to save project. Check console." });
+      console.error("Save error:", error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to save project" });
     }
   };
 
@@ -357,6 +423,40 @@ export default function Projects() {
       )
       : employees;
 
+  // Group employees by department
+  const employeesByDepartment = employees.reduce((acc, emp) => {
+    const dept = emp.department || "General";
+    if (!acc[dept]) {
+      acc[dept] = [];
+    }
+    acc[dept].push(emp);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const sortedDepartments = Object.keys(employeesByDepartment).sort();
+
+  // Filter employees by search term for team member dropdown
+  const filteredEmployeesForTeam = teamMemberSearch.trim() 
+    ? employees.filter(emp => 
+        emp.name?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+        emp.empCode?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+        emp.designation?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+        emp.department?.toLowerCase().includes(teamMemberSearch.toLowerCase())
+      )
+    : employees;
+
+  // Group filtered employees by department
+  const filteredEmployeesByDepartment = filteredEmployeesForTeam.reduce((acc, emp) => {
+    const dept = emp.department || "General";
+    if (!acc[dept]) {
+      acc[dept] = [];
+    }
+    acc[dept].push(emp);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const filteredSortedDepartments = Object.keys(filteredEmployeesByDepartment).sort();
+
   return (
     <div className="space-y-6">
       {/* New Project Button & Dialog */}
@@ -390,7 +490,7 @@ export default function Projects() {
               {/* Project Name, Code & Status */}
               <div className="grid grid-cols-3 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Project Name</Label>
+                  <Label htmlFor="title" className="font-bold">Project Name <span className="text-destructive">*</span></Label>
                   <Input
                     id="title"
                     value={formProject.title}
@@ -400,17 +500,20 @@ export default function Projects() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="projectCode">Project Code</Label>
+                  <Label htmlFor="projectCode">Project Code <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <Input
                     id="projectCode"
                     value={formProject.projectCode}
                     onChange={(e) => setFormProject({ ...formProject, projectCode: e.target.value })}
-                    placeholder="e.g., K-2025-001"
+                    placeholder="e.g., K-2025-001 (optional - leave empty to auto-generate)"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to auto-generate or enter a unique code
+                  </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="status">Project Status</Label>
+                  <Label htmlFor="status">Project Status <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <Select
                     value={formProject.status || "Planned"}
                     onValueChange={(v) => setFormProject({ ...formProject, status: v })}
@@ -428,10 +531,10 @@ export default function Projects() {
                 </div>
               </div>
 
-              {/* Client & Vendor */}
+              {/* Client & Departments */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="clientName">Client Name</Label>
+                  <Label htmlFor="clientName">Client Name <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <Input
                     id="clientName"
                     value={formProject.clientName}
@@ -440,7 +543,7 @@ export default function Projects() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Departments</Label>
+                  <Label>Departments <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <div className="grid grid-cols-2 gap-2 border rounded-lg p-3 bg-muted/20">
                     {[
                       "HR",
@@ -478,134 +581,182 @@ export default function Projects() {
                 </div>
               </div>
 
-              {/* Team Members */}
-              <div className="space-y-3 p-4 border rounded-lg bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <Label className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                    <UserPlus className="h-4 w-4" /> Assign Team Members
-                  </Label>
-                  <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
-                    {formProject.team.length} Selected
-                  </span>
-                </div>
+              {/* Advanced Options Toggle */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+              >
+                <span className="text-sm font-bold uppercase text-muted-foreground">
+                  {showAdvanced ? '−' : '+'} Advanced Options
+                </span>
+                {showAdvanced && <span className="text-xs text-primary">{formProject.team.length + formProject.vendors.length} items</span>}
+              </button>
 
-                <Select
-                  value=""
-                  onValueChange={(id) => {
-                    addTeamMember(id);
-                  }}
-                >
-                  <SelectTrigger className="w-full bg-background">
-                    <SelectValue placeholder="Search and add employees..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[250px]">
-                    {employees.map((emp) => (
-                      <SelectItem
-                        key={emp.id}
-                        value={emp.id}
-                        disabled={formProject.team.includes(emp.id)}
-                      >
-                        <div className="flex flex-col py-0.5">
-                          <span className="font-medium text-sm">{emp.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{emp.designation}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <ScrollArea className="h-[120px] w-full rounded-md border bg-background p-2">
-                  {formProject.team.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
-                      No team members assigned yet.
+              {showAdvanced && (
+                <div className="space-y-6 p-4 border rounded-lg bg-muted/10">
+                  {/* Team Members */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                        <UserPlus className="h-4 w-4" /> Assign Team Members
+                      </Label>
+                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                        {formProject.team.length} Selected
+                      </span>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {formProject.team.map((id) => {
-                        const emp = employees.find((e) => e.id === id);
-                        return (
-                          <div
-                            key={id}
-                            className="flex items-center justify-between p-2 rounded-md border bg-muted/30 group"
+
+                    {/* Search input for team members */}
+                    <Input
+                      placeholder="Search by name, code, designation, or department..."
+                      value={teamMemberSearch}
+                      onChange={(e) => setTeamMemberSearch(e.target.value)}
+                      className="bg-background"
+                    />
+
+                    <Select
+                      value=""
+                      onValueChange={(id) => {
+                        addTeamMember(id);
+                        setTeamMemberSearch("");
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background">
+                        <SelectValue placeholder={filteredEmployeesForTeam.length === 0 ? "No employees match search" : "Select employee to add..."} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] w-full">
+                        {filteredEmployeesForTeam.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No employees found
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {filteredSortedDepartments.map((dept) => (
+                              <div key={dept}>
+                                {/* Department Header */}
+                                <div className="px-3 py-2 text-xs font-bold uppercase text-primary bg-muted/50 sticky top-0">
+                                  {dept}
+                                </div>
+                                {/* Employees in this department */}
+                                {filteredEmployeesByDepartment[dept].map((emp: any) => {
+                                  const isSelected = formProject.team.includes(emp.id);
+                                  return (
+                                    <SelectItem
+                                      key={emp.id}
+                                      value={emp.id}
+                                      disabled={isSelected}
+                                      className={isSelected ? "opacity-50" : ""}
+                                    >
+                                      <div className="flex flex-col py-0.5 pl-2">
+                                        <span className="font-medium text-sm">{emp.name}</span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                          {emp.designation || "N/A"} • {emp.empCode}
+                                        </span>
+                                      </div>
+                                    </SelectItem>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+
+                    <ScrollArea className="h-[100px] w-full rounded-md border bg-background p-2">
+                      {formProject.team.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
+                          No team members assigned yet.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          {formProject.team.map((id) => {
+                            const emp = employees.find((e) => e.id === id);
+                            return (
+                              <div
+                                key={id}
+                                className="flex items-center justify-between p-2 rounded-md border bg-muted/30 group"
+                              >
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-bold truncate">{emp?.name || id}</span>
+                                  <span className="text-[9px] text-muted-foreground truncate uppercase">{emp?.designation || "Staff"}</span>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removeTeamMember(id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </div>
+
+                  {/* Vendors (Manual Entry) */}
+                  <div className="space-y-3 border-t pt-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                        <Users className="h-4 w-4" /> Vendors
+                      </Label>
+                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                        {formProject.vendors.length} Added
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input
+                        value={vendorInput}
+                        onChange={(e) => setVendorInput(e.target.value)}
+                        placeholder="Type vendor name and press Add"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addVendor();
+                          }
+                        }}
+                      />
+                      <Button type="button" onClick={addVendor}>
+                        Add
+                      </Button>
+                    </div>
+
+                    {formProject.vendors.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">
+                        No vendors added yet.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {formProject.vendors.map((vendor) => (
+                          <Badge
+                            key={vendor}
+                            variant="secondary"
+                            className="flex items-center gap-1"
                           >
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-xs font-bold truncate">{emp?.name || id}</span>
-                              <span className="text-[9px] text-muted-foreground truncate uppercase">{emp?.designation || "Staff"}</span>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                              onClick={() => removeTeamMember(id)}
+                            {vendor}
+                            <button
+                              type="button"
+                              onClick={() => removeVendor(vendor)}
+                              className="ml-1 hover:text-destructive"
                             >
                               <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </ScrollArea>
-              </div>
-
-              {/* Vendors (Manual Entry) */}
-              <div className="space-y-3 p-4 border rounded-lg bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <Label className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                    <Users className="h-4 w-4" /> Vendors
-                  </Label>
-                  <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
-                    {formProject.vendors.length} Added
-                  </span>
-                </div>
-
-                <div className="flex gap-2">
-                  <Input
-                    value={vendorInput}
-                    onChange={(e) => setVendorInput(e.target.value)}
-                    placeholder="Type vendor name and press Add"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addVendor();
-                      }
-                    }}
-                  />
-                  <Button type="button" onClick={addVendor}>
-                    Add
-                  </Button>
-                </div>
-
-                {formProject.vendors.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">
-                    No vendors added yet.
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {formProject.vendors.map((vendor) => (
-                      <Badge
-                        key={vendor}
-                        variant="secondary"
-                        className="flex items-center gap-1"
-                      >
-                        {vendor}
-                        <button
-                          type="button"
-                          onClick={() => removeVendor(vendor)}
-                          className="ml-1 hover:text-destructive"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Progress & Dates */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="progress">Progress (%)</Label>
+                  <Label htmlFor="progress">Progress (%) <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <Input
                     id="progress"
                     type="number"
@@ -616,7 +767,7 @@ export default function Projects() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date</Label>
+                  <Label htmlFor="startDate" className="font-bold">Start Date <span className="text-destructive">*</span></Label>
                   <Input
                     id="startDate"
                     type="date"
@@ -625,7 +776,7 @@ export default function Projects() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="endDate">End Date</Label>
+                  <Label htmlFor="endDate" className="font-bold">End Date <span className="text-destructive">*</span></Label>
                   <Input
                     id="endDate"
                     type="date"
@@ -637,7 +788,7 @@ export default function Projects() {
 
               {/* Description */}
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">Description <span className="text-xs text-muted-foreground">(optional)</span></Label>
                 <Textarea
                   id="description"
                   value={formProject.description}
@@ -650,7 +801,10 @@ export default function Projects() {
 
             {/* Footer Buttons */}
             <DialogFooter className="pt-4 border-t">
-              <Button variant="outline" onClick={() => setOpenDialog(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => {
+                setOpenDialog(false);
+                setTeamMemberSearch("");
+              }}>Cancel</Button>
               <Button onClick={handleSaveProject} className="min-w-[120px]">
                 {modalMode === 'edit' ? "Update Project" :
                   modalMode === 'saveAs' ? "Create As Project" :
@@ -673,22 +827,25 @@ export default function Projects() {
           />
         </div>
 
-        {/* Department Filter */}
-        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-          <SelectTrigger className="w-full md:w-56">
-            <SelectValue placeholder="All Departments" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Departments</SelectItem>
-            <SelectItem value="HR">HR</SelectItem>
-            <SelectItem value="Operations">Operations</SelectItem>
-            <SelectItem value="Software Developers">Software Developers</SelectItem>
-            <SelectItem value="Finance">Finance</SelectItem>
-            <SelectItem value="Purchase">Purchase</SelectItem>
-            <SelectItem value="Presales">Presales</SelectItem>
-            <SelectItem value="IT Support">IT Support</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Department Filter - Only for Admins */}
+        {isAdmin && (
+          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+            <SelectTrigger className="w-full md:w-56">
+              <SelectValue placeholder="All Departments" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Departments</SelectItem>
+              <SelectItem value="HR">HR</SelectItem>
+              <SelectItem value="Operations">Operations</SelectItem>
+              <SelectItem value="Software Developers">Software Developers</SelectItem>
+              <SelectItem value="Finance">Finance</SelectItem>
+              <SelectItem value="Purchase">Purchase</SelectItem>
+              <SelectItem value="Presales">Presales</SelectItem>
+              <SelectItem value="IT Support">IT Support</SelectItem>
+              <SelectItem value="General">General</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
 
         {/* Status Filter */}
         <Select value={statusFilter} onValueChange={setStatusFilter}>

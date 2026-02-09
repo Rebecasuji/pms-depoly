@@ -93,40 +93,38 @@ export default function Dashboard() {
   };
 
 
-  // ---------------- TASKS (PER PROJECT) ----------------
+  // ---------------- TASKS (BULK FETCH) ----------------
 
-  const fetchTasks = async (projectsList: any[]) => {
+  const fetchTasks = async () => {
     try {
-      const allTasks: any[] = [];
-
-      for (const project of projectsList) {
-        const res = await apiFetch(`/api/tasks/${project.id}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (Array.isArray(data)) allTasks.push(...data);
+      if (projects.length === 0) {
+        setTasks([]);
+        return;
       }
-
-      setTasks(allTasks);
+      // Fetch all tasks for all projects at once
+      const res = await apiFetch("/api/tasks/bulk");
+      if (!res.ok) throw new Error("Failed to fetch tasks");
+      const data = await res.json();
+      setTasks(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Fetch tasks error:", err);
       setTasks([]);
     }
   };
 
-  // ---------------- KEY STEPS (PER PROJECT) ----------------
+  // ---------------- KEY STEPS (BULK FETCH) ----------------
 
-  const fetchKeySteps = async (projectsList: any[]) => {
+  const fetchKeySteps = async () => {
     try {
-      const allSteps: any[] = [];
-
-      for (const project of projectsList) {
-        const res = await apiFetch(`/api/projects/${project.id}/key-steps`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (Array.isArray(data)) allSteps.push(...data);
+      if (projects.length === 0) {
+        setKeySteps([]);
+        return;
       }
-
-      setKeySteps(allSteps);
+      // Fetch all keysteps for all projects at once
+      const res = await apiFetch("/api/keysteps/bulk");
+      if (!res.ok) throw new Error("Failed to fetch keysteps");
+      const data = await res.json();
+      setKeySteps(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Fetch keysteps error:", err);
       setKeySteps([]);
@@ -135,8 +133,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (projects.length > 0) {
-      fetchTasks(projects);
-      fetchKeySteps(projects);
+      // Fetch tasks and keysteps in parallel (not sequentially)
+      Promise.all([fetchTasks(), fetchKeySteps()]);
     }
   }, [projects]);
 
