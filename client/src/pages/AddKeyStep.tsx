@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch } from "@/lib/apiClient";
 import {
   Select,
   SelectContent,
@@ -39,17 +40,26 @@ export default function AddKeyStep() {
 
   // Load projects
   useEffect(() => {
-    fetch("/api/projects")
-      .then(r => r.json())
-      .then(setProjects)
-      .catch(err => console.error("Failed to load projects:", err));
+    apiFetch("/api/projects")
+      .then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      })
+      .then(data => setProjects(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error("Failed to load projects:", err);
+        setProjects([]);
+      });
   }, []);
 
   // Load existing keystep if editing
   useEffect(() => {
     if (keyStepId) {
-      fetch(`/api/key-steps/${keyStepId}`)
-        .then(r => r.json())
+      apiFetch(`/api/key-steps/${keyStepId}`)
+        .then(r => {
+          if (!r.ok) throw new Error(`API error: ${r.status}`);
+          return r.json();
+        })
         .then((data: any) => {
           setForm({
             header: data.header || "",
@@ -92,7 +102,7 @@ export default function AddKeyStep() {
       const method = keyStepId ? "PUT" : "POST";
       const url = keyStepId ? `/api/key-steps/${keyStepId}` : "/api/key-steps";
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -118,7 +128,7 @@ export default function AddKeyStep() {
     }
   };
 
-  const selectedProjectName = projects.find((p: any) => p.id === projectId)?.title || "Unknown Project";
+  const selectedProjectName = projects.find((p: any) => String(p.id) === projectId)?.title || "Unknown Project";
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">

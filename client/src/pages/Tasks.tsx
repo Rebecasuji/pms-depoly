@@ -183,9 +183,13 @@ export default function Tasks() {
                 <SelectValue placeholder="Select Project" />
               </SelectTrigger>
               <SelectContent className="max-h-[300px] overflow-y-auto">
-                {projects.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-                ))}
+                {projects.length > 0 ? (
+                  projects.map(p => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
+                  ))
+                ) : (
+                  <div className="p-2 text-xs text-muted-foreground">No projects available</div>
+                )}
               </SelectContent>
             </Select>
           </div>

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch } from "@/lib/apiClient";
 import {
   Select,
   SelectContent,
@@ -44,20 +45,35 @@ export default function AddEditTask() {
 
   // Load initial data
   useEffect(() => {
-    fetch("/api/employees")
-      .then(r => r.json())
+    apiFetch("/api/employees")
+      .then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      })
       .then(data => setEmployees(Array.isArray(data) ? data : []))
-      .catch(() => setEmployees([]));
+      .catch(err => {
+        console.error("Failed to load employees:", err);
+        setEmployees([]);
+      });
 
-    fetch("/api/projects")
-      .then(r => r.json())
+    apiFetch("/api/projects")
+      .then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      })
       .then(data => setProjects(Array.isArray(data) ? data : []))
-      .catch(() => setProjects([]));
+      .catch(err => {
+        console.error("Failed to load projects:", err);
+        setProjects([]);
+      });
 
     // If editing, load task data
     if (taskId) {
-      fetch(`/api/task/${taskId}`)
-        .then(r => r.ok ? r.json() : Promise.reject(r))
+      apiFetch(`/api/task/${taskId}`)
+        .then(r => {
+          if (!r.ok) throw new Error(`API error: ${r.status}`);
+          return r.json();
+        })
         .then((task: any) => {
           setForm({
             projectId: task.projectId || "",
@@ -73,7 +89,9 @@ export default function AddEditTask() {
           });
           setSubtasks(Array.isArray(task.subtasks) ? task.subtasks : []);
         })
-        .catch(() => {});
+        .catch(err => {
+          console.error("Failed to load task:", err);
+        });
     }
   }, [taskId]);
 
@@ -81,10 +99,16 @@ export default function AddEditTask() {
   useEffect(() => {
     if (!form.projectId) return;
 
-    fetch(`/api/projects/${form.projectId}/key-steps`)
-      .then(r => r.json())
+    apiFetch(`/api/projects/${form.projectId}/key-steps`)
+      .then(r => {
+        if (!r.ok) throw new Error(`API error: ${r.status}`);
+        return r.json();
+      })
       .then(data => setMilestones(Array.isArray(data) ? data : []))
-      .catch(() => setMilestones([]));
+      .catch(err => {
+        console.error("Failed to load milestones:", err);
+        setMilestones([]);
+      });
   }, [form.projectId]);
 
   const addSubtask = () => {
@@ -112,7 +136,7 @@ export default function AddEditTask() {
       const method = taskId ? "PUT" : "POST";
       const url = taskId ? `/api/tasks/${taskId}` : "/api/tasks";
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -165,7 +189,11 @@ export default function AddEditTask() {
                   <SelectValue placeholder="Select Project" />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+                  {projects.length > 0 ? (
+                    projects.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>)
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">No projects available</div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -176,7 +204,11 @@ export default function AddEditTask() {
                   <SelectValue placeholder="Select Assigner" />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
+                  {employees.length > 0 ? (
+                    employees.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">No employees available</div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -191,7 +223,7 @@ export default function AddEditTask() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No Milestone</SelectItem>
-                {milestones.map(m => <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>)}
+                {milestones.map(m => <SelectItem key={m.id} value={String(m.id)}>{m.title}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -322,7 +354,7 @@ export default function AddEditTask() {
                   </SelectTrigger>
                   <SelectContent>
                     {employees.map(e => (
-                      <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                      <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

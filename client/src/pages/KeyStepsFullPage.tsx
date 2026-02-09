@@ -173,9 +173,13 @@ export default function KeyStepsFullPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {projects.map((p: any) => (
-                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-                ))}
+                {projects.length > 0 ? (
+                  projects.map((p: any) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
+                  ))
+                ) : (
+                  <div className="p-2 text-xs text-muted-foreground">No projects available</div>
+                )}
               </SelectContent>
             </Select>
           </div>
