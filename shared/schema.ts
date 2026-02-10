@@ -52,6 +52,8 @@ export const projects = pgTable("projects", {
   description: text("description"),
 
   clientName: text("client_name"),
+  // Optional physical/location field near client
+  location: text("location"),
 
   status: text("status").notNull().default("open"),
   progress: integer("progress").notNull().default(0),
@@ -64,6 +66,8 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/* add location to insert schema */
 
 /* ===============================
    PROJECT DEPARTMENTS
@@ -159,6 +163,7 @@ export const subtasks = pgTable("subtasks", {
   id: uuid("id").defaultRandom().primaryKey(),
   taskId: uuid("task_id").notNull().references(() => projectTasks.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  description: text("description").default(""),
   isCompleted: boolean("is_completed").default(false),
   assignedTo: uuid("assigned_to").references(() => employees.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -216,6 +221,7 @@ export const insertProjectSchema = z.object({
   description: z.string().optional(),
 
   clientName: z.string().optional(), // ✅ REQUIRED FOR UI
+  location: z.string().optional(),
 
   status: z.string().optional(),
   progress: z.number().optional(),

@@ -116,9 +116,9 @@ function ProtectedRouter() {
   );
 }
 
-/* ---------------- PUBLIC ROUTER ---------------- */
+/* ---------------- APP ROUTER (wrapped by AuthProvider) ---------------- */
 
-function Router() {
+function AppRouter() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -149,7 +149,7 @@ function App() {
       <TooltipProvider>
         <AuthProvider>
           <Toaster />
-          <Router />
+          <AppRouter />
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>

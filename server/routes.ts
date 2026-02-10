@@ -333,6 +333,7 @@ export async function registerRoutes(
         department = [],
         description,
         clientName,
+        location,
         status = "Planned",
         startDate,
         endDate,
@@ -378,6 +379,7 @@ export async function registerRoutes(
           title: title.trim(),
           projectCode: finalProjectCode,
           clientName: clientName?.trim() || null,
+          location: location?.trim() || null,
           description: description?.trim() || null,
           status: status || "Planned",
           progress: Math.min(100, Math.max(0, Number(progress) || 0)),
@@ -470,6 +472,7 @@ export async function registerRoutes(
         department = [],
         description,
         clientName,
+        location,
         status,
         startDate,
         endDate,
@@ -502,6 +505,7 @@ export async function registerRoutes(
         title,
         projectCode,
         clientName: clientName || null,
+        location: location || null,
         description: description || null,
         status: status || "open",
         progress: Number(progress) || 0,
@@ -836,7 +840,7 @@ export async function registerRoutes(
 ================================ */
 
   // CREATE TASK
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", requireAuth, async (req: any, res) => {
     try {
       const {
         projectId,
@@ -852,7 +856,10 @@ export async function registerRoutes(
         subtasks: incomingSubtasks = [],
       } = req.body;
 
-      if (!projectId || !taskName || !assignerId) {
+      // assignerId is optional; default to the authenticated employee if available
+      const finalAssignerId = assignerId || req.employee?.id || null;
+
+      if (!projectId || !taskName) {
         return res.status(400).json({ message: "Missing required fields" });
       }
 
@@ -875,7 +882,7 @@ export async function registerRoutes(
           priority: priority || "medium",
           startDate: startDate ? formatDate(startDate) : null,
           endDate: endDate ? formatDate(endDate) : null,
-          assignerId,
+          assignerId: finalAssignerId,
         } as any)
         .returning();
 
@@ -895,6 +902,7 @@ export async function registerRoutes(
         const rows = incomingSubtasks.map((st: any) => ({
           taskId: task.id,
           title: st.title || null,
+          description: st.description || "",
           isCompleted: !!st.isCompleted,
           // keep single-column for backward compatibility; we also persist members into subtask_members
           assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
@@ -929,7 +937,7 @@ export async function registerRoutes(
   });
 
   // UPDATE TASK
-  app.put("/api/tasks/:id", async (req, res) => {
+  app.put("/api/tasks/:id", requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const {
@@ -944,6 +952,9 @@ export async function registerRoutes(
         taskMembers: memberList = [],
         subtasks: incomingSubtasks = [],
       } = req.body;
+
+      // If assignerId is omitted, default to authenticated employee (if any)
+      const finalAssignerId = typeof assignerId !== 'undefined' ? assignerId : req.employee?.id || null;
 
       // Temporary debug logs to inspect incoming payload and behavior
       console.log("[PUT /api/tasks/:id] incoming body:", JSON.stringify(req.body));
@@ -960,7 +971,7 @@ export async function registerRoutes(
         description: description || null,
         status: status || "pending",
         priority: priority || "medium",
-        assignerId,
+        assignerId: finalAssignerId,
         updatedAt: new Date(),
       };
 
@@ -1001,6 +1012,7 @@ export async function registerRoutes(
         const rows = incomingSubtasks.map((st: any) => ({
           taskId: id,
           title: st.title || null,
+          description: st.description || "",
           isCompleted: !!st.isCompleted,
           assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
         }));
@@ -1052,6 +1064,188 @@ export async function registerRoutes(
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error("Task delete error:", errorMessage);
       res.status(500).json({ message: "Task delete failed", details: errorMessage });
+    }
+  });
+
+  // CLONE TASK (duplicate with subtasks and members)
+  app.post("/api/tasks/:id/clone", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { newName } = req.body;
+
+      // Get original task
+      const [originalTask] = await db
+        .select()
+        .from(projectTasks)
+        .where(eq(projectTasks.id, id));
+
+      if (!originalTask) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      // Create new task with cloned data
+      const newTaskId = uuidv4();
+      await db.insert(projectTasks).values({
+        id: newTaskId,
+        projectId: originalTask.projectId,
+        keyStepId: originalTask.keyStepId,
+        taskName: newName || `${originalTask.taskName} (Copy)`,
+        description: originalTask.description,
+        status: originalTask.status,
+        priority: originalTask.priority,
+        startDate: originalTask.startDate,
+        endDate: originalTask.endDate,
+        assignerId: originalTask.assignerId,
+      });
+
+      // Clone task members
+      const originalMembers = await db
+        .select()
+        .from(taskMembers)
+        .where(eq(taskMembers.taskId, id));
+
+      if (originalMembers.length > 0) {
+        await db.insert(taskMembers).values(
+          originalMembers.map(m => ({
+            taskId: newTaskId,
+            employeeId: m.employeeId,
+          }))
+        );
+      }
+
+      // Clone subtasks
+      const originalSubtasks = await db
+        .select()
+        .from(subtasks)
+        .where(eq(subtasks.taskId, id));
+
+      if (originalSubtasks.length > 0) {
+        const subtaskIds = new Map<string, string>();
+
+        for (const originalSubtask of originalSubtasks) {
+          const newSubtaskId = uuidv4();
+          subtaskIds.set(originalSubtask.id, newSubtaskId);
+
+          await db.insert(subtasks).values({
+            id: newSubtaskId,
+            taskId: newTaskId,
+            title: originalSubtask.title,
+            description: originalSubtask.description || "",
+            isCompleted: false,
+            assignedTo: originalSubtask.assignedTo,
+          });
+
+          // Clone subtask members
+          const subMembers = await db
+            .select()
+            .from(subtaskMembers)
+            .where(eq(subtaskMembers.subtaskId, originalSubtask.id));
+
+          if (subMembers.length > 0) {
+            await db.insert(subtaskMembers).values(
+              subMembers.map(m => ({
+                subtaskId: newSubtaskId,
+                employeeId: m.employeeId,
+              }))
+            );
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        newTaskId,
+        message: `Task cloned successfully as "${newName || `${originalTask.taskName} (Copy)`}"`,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Task clone error:", errorMessage);
+      res.status(500).json({ error: "Clone failed", details: errorMessage });
+    }
+  });
+
+  // CREATE SUBTASK (standalone endpoint for quick add)
+  app.post("/api/subtasks", requireAuth, async (req: any, res) => {
+    try {
+      const { taskId, title, description = "" } = req.body;
+
+      if (!taskId || !title) {
+        return res.status(400).json({ error: "taskId and title are required" });
+      }
+
+      const newSubtaskId = uuidv4();
+      await db.insert(subtasks).values({
+        id: newSubtaskId,
+        taskId,
+        title: title.trim(),
+        description: description || "",
+        isCompleted: false,
+        assignedTo: null,
+      });
+
+      res.json({
+        success: true,
+        id: newSubtaskId,
+        message: "Subtask created successfully",
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Subtask create error:", errorMessage);
+      res.status(500).json({ error: "Failed to create subtask", details: errorMessage });
+    }
+  });
+
+  // CLONE SUBTASK
+  app.post("/api/subtasks/:id/clone", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { newTitle } = req.body;
+
+      // Get original subtask
+      const [originalSubtask] = await db
+        .select()
+        .from(subtasks)
+        .where(eq(subtasks.id, id));
+
+      if (!originalSubtask) {
+        return res.status(404).json({ error: "Subtask not found" });
+      }
+
+      // Create new subtask
+      const newSubtaskId = uuidv4();
+      await db.insert(subtasks).values({
+        id: newSubtaskId,
+        taskId: originalSubtask.taskId,
+        title: newTitle || `${originalSubtask.title} (Copy)`,
+        description: originalSubtask.description,
+        isCompleted: false,
+        assignedTo: originalSubtask.assignedTo,
+      });
+
+      // Clone subtask members
+      const originalMembers = await db
+        .select()
+        .from(subtaskMembers)
+        .where(eq(subtaskMembers.subtaskId, id));
+
+      if (originalMembers.length > 0) {
+        await db.insert(subtaskMembers).values(
+          originalMembers.map(m => ({
+            subtaskId: newSubtaskId,
+            employeeId: m.employeeId,
+          }))
+        );
+      }
+
+      res.json({
+        success: true,
+        newSubtaskId,
+        message: `Subtask cloned successfully as "${newTitle || `${originalSubtask.title} (Copy)`}"`,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Subtask clone error:", errorMessage);
+      res.status(500).json({ error: "Clone failed", details: errorMessage });
     }
   });
 

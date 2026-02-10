@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   Circle,
   Search,
+  Copy,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ import {
 interface Subtask {
   id?: string;
   title: string;
+  description?: string;
   isCompleted: boolean;
   assignedTo: string[]; // array of employee IDs
 }
@@ -71,6 +74,24 @@ export default function Tasks() {
 
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+
+  // Quick Add Task
+  const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
+  const [quickTaskName, setQuickTaskName] = useState("");
+
+  // Quick Add Subtask
+  const [quickAddSubtaskOpen, setQuickAddSubtaskOpen] = useState(false);
+  const [quickSubtaskTaskId, setQuickSubtaskTaskId] = useState("");
+  const [quickSubtaskTitle, setQuickSubtaskTitle] = useState("");
+
+  // Clone modals
+  const [cloneTaskOpen, setCloneTaskOpen] = useState(false);
+  const [cloneTaskData, setCloneTaskData] = useState<{ id: string; name: string } | null>(null);
+  const [cloneTaskNewName, setCloneTaskNewName] = useState("");
+
+  const [cloneSubtaskOpen, setCloneSubtaskOpen] = useState(false);
+  const [cloneSubtaskData, setCloneSubtaskData] = useState<{ id: string; title: string } | null>(null);
+  const [cloneSubtaskNewTitle, setCloneSubtaskNewTitle] = useState("");
 
   /* ================= LOAD INITIAL DATA ================= */
 
@@ -171,6 +192,112 @@ export default function Tasks() {
     setOpenDeleteDialog(true);
   };
 
+  /* ================= QUICK ADD HANDLERS ================= */
+
+  const handleQuickAddTask = async () => {
+    if (!quickTaskName.trim()) {
+      alert("Please enter a task name");
+      return;
+    }
+
+    try {
+      await apiFetch("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId,
+          taskName: quickTaskName.trim(),
+          description: "",
+          status: "pending",
+          priority: "medium",
+          assignerId: null,
+        }),
+      });
+
+      // Refresh tasks
+      const updated = await apiFetch(`/api/tasks/${projectId}`).then(r => r.json());
+      setTasks(Array.isArray(updated) ? updated : []);
+      setQuickTaskName("");
+      setQuickAddTaskOpen(false);
+    } catch (err) {
+      alert("Failed to create task");
+    }
+  };
+
+  const handleQuickAddSubtask = async () => {
+    if (!quickSubtaskTitle.trim()) {
+      alert("Please enter a subtask title");
+      return;
+    }
+
+    try {
+      await apiFetch("/api/subtasks", {
+        method: "POST",
+        body: JSON.stringify({
+          taskId: quickSubtaskTaskId,
+          title: quickSubtaskTitle.trim(),
+          description: "",
+          isCompleted: false,
+        }),
+      });
+
+      // Refresh tasks
+      const updated = await apiFetch(`/api/tasks/${projectId}`).then(r => r.json());
+      setTasks(Array.isArray(updated) ? updated : []);
+      setQuickSubtaskTitle("");
+      setQuickAddSubtaskOpen(false);
+    } catch (err) {
+      alert("Failed to create subtask");
+    }
+  };
+
+  /* ================= CLONE HANDLERS ================= */
+
+  const handleCloneTask = async () => {
+    if (!cloneTaskData) return;
+
+    try {
+      const response = await apiFetch(`/api/tasks/${cloneTaskData.id}/clone`, {
+        method: "POST",
+        body: JSON.stringify({ newName: cloneTaskNewName || undefined }),
+      });
+
+      if (!response.ok) throw new Error("Clone failed");
+
+      // Refresh tasks
+      const updated = await apiFetch(`/api/tasks/${projectId}`).then(r => r.json());
+      setTasks(Array.isArray(updated) ? updated : []);
+      setCloneTaskNewName("");
+      setCloneTaskOpen(false);
+      setCloneTaskData(null);
+      alert("Task cloned successfully!");
+    } catch (err) {
+      alert("Failed to clone task");
+    }
+  };
+
+  const handleCloneSubtask = async () => {
+    if (!cloneSubtaskData) return;
+
+    try {
+      const response = await apiFetch(`/api/subtasks/${cloneSubtaskData.id}/clone`, {
+        method: "POST",
+        body: JSON.stringify({ newTitle: cloneSubtaskNewTitle || undefined }),
+      });
+
+      if (!response.ok) throw new Error("Clone failed");
+
+      // Refresh tasks
+      const updated = await apiFetch(`/api/tasks/${projectId}`).then(r => r.json());
+      setTasks(Array.isArray(updated) ? updated : []);
+      setCloneSubtaskNewTitle("");
+      setCloneSubtaskOpen(false);
+      setCloneSubtaskData(null);
+      alert("Subtask cloned successfully!");
+    } catch (err) {
+      alert("Failed to clone subtask");
+    }
+  };
+
   /* ================= SUBTASK HANDLERS ================= */
 
   // Apply search and optional keystep filter
@@ -224,73 +351,282 @@ export default function Tasks() {
           <Button onClick={openAdd}>
             <Plus className="h-4 w-4 mr-1" /> Add Task
           </Button>
+
+          <Button 
+            onClick={() => setQuickAddTaskOpen(true)}
+            variant="outline"
+            className="border-amber-200 text-amber-700 hover:bg-amber-50"
+          >
+            <Plus className="h-4 w-4 mr-1" /> Quick Add
+          </Button>
         </div>
       </div>
 
       {/* MAIN TABLE */}
-      <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="grid grid-cols-12 bg-slate-100 border-b text-[10px] font-bold p-4 uppercase text-slate-500">
-          <div className="col-span-3">Task Name</div>
-          <div className="col-span-3">Assignees</div>
-          <div className="col-span-1 text-center">Start</div>
-          <div className="col-span-1 text-center">End</div>
-          <div className="col-span-1 text-center">Status</div>
-          <div className="col-span-1 text-center">Priority</div>
-          <div className="col-span-2 text-right">Last Updated</div>
-        </div>
-
-        {filteredTasks.length === 0 && (
-          <div className="p-12 text-center text-slate-500">No tasks found</div>
-        )}
-
-        {filteredTasks.map(task => (
-          <div key={task.id} className="border-b hover:bg-slate-50">
-              <div className="grid grid-cols-12 items-center p-4 text-xs">
-              <div className="col-span-3">
-                <button onClick={() => toggleExpand(task.id)} className="mr-2">{expandedTasks.includes(task.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
-                <span className={task.status === "Completed" ? "line-through opacity-50" : ""}>{task.taskName}</span>
-              </div>
-              <div className="col-span-3 flex gap-2 flex-wrap">
-                {(task.taskMembers || []).map(id => (
-                  <Badge key={id} variant="outline" className="text-[10px]">{employees.find(e => e.id === id)?.name || id}</Badge>
-                ))}
-              </div>
-              <div className="col-span-1 text-center text-slate-500">{task.startDate || 'N/A'}</div>
-              <div className="col-span-1 text-center text-slate-500">{task.endDate || 'N/A'}</div>
-              <div className="col-span-1 text-center"><Badge variant={task.status === "Completed" ? "default" : "outline"}>{task.status}</Badge></div>
-              <div className="col-span-1 text-center text-slate-500">{task.priority || '—'}</div>
-              <div className="col-span-2 text-right text-slate-500">{task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '-'}</div>
-            </div>
-
-            {/* EXPANDED VIEW */}
-            {expandedTasks.includes(task.id) && (
-              <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 space-y-4">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700">Description</h4>
-                  <p className="text-xs text-slate-600">{task.description || "No description"}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700 mb-2">Subtasks</h4>
-                  {task.subtasks?.map((s, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-2 text-xs p-2 border-b">
-                      <div className="col-span-1 text-center">
-                        {s.isCompleted ? <CheckCircle2 size={14} className="text-green-500 mx-auto" /> : <Circle size={14} className="mx-auto" />}
+      <div className="bg-white border rounded-xl overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-100 border-b">
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-12"></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 w-64">Task Name</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 w-56">Assignees</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-28">Start Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-28">End Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Status</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Priority</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-20">Subtasks</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTasks.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="p-12 text-center text-slate-500">No tasks found</td>
+              </tr>
+            ) : (
+              filteredTasks.map(task => (
+                <tbody key={task.id}>
+                  {/* MAIN TASK ROW */}
+                  <tr className="border-b hover:bg-slate-50 transition-colors">
+                    <td className="px-3 py-3 text-center w-12">
+                      <button
+                        onClick={() => toggleExpand(task.id)}
+                        className="text-slate-500 hover:text-slate-700 flex justify-center"
+                      >
+                        {expandedTasks.includes(task.id) ? (
+                          <ChevronDown size={18} />
+                        ) : (
+                          <ChevronRight size={18} />
+                        )}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 w-64 align-top">
+                      <span
+                        className={`text-sm font-medium block ${
+                          task.status === "Completed"
+                            ? "line-through opacity-50 text-slate-400"
+                            : "text-slate-900"
+                        }`}
+                      >
+                        {task.taskName}
+                      </span>
+                      {task.description && (
+                        <div className="text-xs text-slate-500 mt-1 truncate">
+                          {task.description}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 w-56 align-top">
+                      <div className="flex gap-1 flex-wrap items-center">
+                        {(task.taskMembers || []).length > 0 ? (
+                          <>
+                            {(task.taskMembers || []).slice(0, 3).map(id => (
+                              <Badge
+                                key={id}
+                                variant="secondary"
+                                className="text-xs whitespace-nowrap"
+                              >
+                                {employees.find(e => e.id === id)?.name || id}
+                              </Badge>
+                            ))}
+                            {(task.taskMembers || []).length > 3 && (
+                              <Badge variant="outline" className="text-xs whitespace-nowrap">
+                                +{(task.taskMembers || []).length - 3}
+                              </Badge>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-slate-400">Unassigned</span>
+                        )}
                       </div>
-                      <div className="col-span-7">{s.title}</div>
-                      <div className="col-span-4 flex gap-1 flex-wrap">
-                        {s.assignedTo?.map(id => (
-                          <Badge key={id} variant="outline" className="text-[10px]">
-                            {employees.find(e => e.id === id)?.name}
-                          </Badge>
-                        ))}
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm text-slate-600 w-28">
+                      {task.startDate ? new Date(task.startDate).toLocaleDateString() : "N/A"}
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm text-slate-600 w-28">
+                      {task.endDate ? new Date(task.endDate).toLocaleDateString() : "N/A"}
+                    </td>
+                    <td className="px-3 py-3 text-center w-24">
+                      <Badge
+                        variant={
+                          task.status === "Completed" ? "default" : "outline"
+                        }
+                        className="text-xs whitespace-nowrap inline-flex justify-center"
+                      >
+                        {task.status}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3 text-center w-24">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs whitespace-nowrap inline-flex justify-center ${
+                          task.priority === "high"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : task.priority === "medium"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-green-50 text-green-700 border-green-200"
+                        }`}
+                      >
+                        {task.priority || "—"}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3 text-center w-20">
+                      <Badge variant="secondary" className="text-xs inline-flex justify-center w-full">
+                        {task.subtasks?.length || 0}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3 text-center w-24">
+                      <div className="flex gap-2 justify-center items-center">
+                        <button
+                          onClick={() => navigate(`/add-task?id=${task.id}&projectId=${task.projectId}`)}
+                          className="text-blue-600 hover:text-blue-700"
+                          title="Edit Task"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCloneTaskData({ id: task.id, name: task.taskName });
+                            setCloneTaskNewName(`${task.taskName} (Copy)`);
+                            setCloneTaskOpen(true);
+                          }}
+                          className="text-green-600 hover:text-green-700"
+                          title="Clone Task"
+                        >
+                          <Copy size={16} />
+                        </button>
+                        <button
+                          onClick={() => askDelete(task)}
+                          className="text-red-600 hover:text-red-700"
+                          title="Delete Task"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                    </td>
+                  </tr>
+
+                  {/* EXPANDED SUBTASKS ROW */}
+                  {expandedTasks.includes(task.id) && (
+                    <tr className="bg-slate-50 border-b">
+                      <td colSpan={9} className="px-6 py-4">
+                        <div className="space-y-4">
+                          {/* Description */}
+                          {task.description && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-slate-700 uppercase mb-2">
+                                Description
+                              </h4>
+                              <p className="text-sm text-slate-600 bg-white p-3 rounded border">
+                                {task.description}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Subtasks */}
+                          {task.subtasks && task.subtasks.length > 0 && (
+                            <div>
+                              <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-xs font-semibold text-slate-700 uppercase">
+                                  Subtasks ({task.subtasks.length})
+                                </h4>
+                                <button
+                                  onClick={() => {
+                                    setQuickSubtaskTaskId(task.id);
+                                    setQuickSubtaskTitle("");
+                                    setQuickAddSubtaskOpen(true);
+                                  }}
+                                  className="inline-flex items-center text-xs text-amber-600 hover:text-amber-700 gap-1"
+                                >
+                                  <Plus size={12} /> Quick Add
+                                </button>
+                              </div>
+                              <div className="space-y-2">
+                                {task.subtasks.map((subtask, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex items-start gap-3 p-3 bg-white rounded border border-slate-200 hover:border-slate-300 transition-colors"
+                                  >
+                                    <div className="pt-0.5">
+                                      {subtask.isCompleted ? (
+                                        <CheckCircle2
+                                          size={16}
+                                          className="text-green-500"
+                                        />
+                                      ) : (
+                                        <Circle
+                                          size={16}
+                                          className="text-slate-300"
+                                        />
+                                      )}
+                                    </div>
+                                    <div className="flex-1">
+                                      <span
+                                        className={`text-sm ${
+                                          subtask.isCompleted
+                                            ? "line-through text-slate-400"
+                                            : "text-slate-900"
+                                        }`}
+                                      >
+                                        {subtask.title}
+                                      </span>
+                                      {subtask.description && (
+                                        <div className="text-xs text-slate-500 mt-1">
+                                          {subtask.description}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex gap-1">
+                                      {subtask.assignedTo &&
+                                        subtask.assignedTo.length > 0 && (
+                                          <div className="flex gap-1 flex-wrap justify-end">
+                                            {subtask.assignedTo.map(id => (
+                                              <Badge
+                                                key={id}
+                                                variant="outline"
+                                                className="text-xs whitespace-nowrap"
+                                              >
+                                                {employees.find(
+                                                  e => e.id === id
+                                                )?.name ||
+                                                  id.slice(0, 3)}
+                                              </Badge>
+                                            ))}
+                                          </div>
+                                        )}
+                                      <button
+                                        onClick={() => {
+                                          setCloneSubtaskData({ id: subtask.id || "", title: subtask.title });
+                                          setCloneSubtaskNewTitle(`${subtask.title} (Copy)`);
+                                          setCloneSubtaskOpen(true);
+                                        }}
+                                        className="inline-flex items-center text-green-600 hover:text-green-700 ml-2"
+                                        title="Clone Subtask"
+                                      >
+                                        <Copy size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {!task.subtasks ||
+                            (task.subtasks.length === 0 && (
+                              <p className="text-sm text-slate-500">
+                                No subtasks
+                              </p>
+                            ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              ))
             )}
-          </div>
-        ))}
+          </tbody>
+        </table>
       </div>
 
       {/* DELETE DIALOG */}
@@ -301,6 +637,103 @@ export default function Tasks() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
             <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* QUICK ADD TASK DIALOG */}
+      <Dialog open={quickAddTaskOpen} onOpenChange={setQuickAddTaskOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Quick Add Task</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Task Name *</label>
+              <Input
+                placeholder="Enter task name..."
+                value={quickTaskName}
+                onChange={(e) => setQuickTaskName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleQuickAddTask()}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Description can be added later by editing the task.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickAddTaskOpen(false)}>Cancel</Button>
+            <Button onClick={handleQuickAddTask}>Create Task</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* QUICK ADD SUBTASK DIALOG */}
+      <Dialog open={quickAddSubtaskOpen} onOpenChange={setQuickAddSubtaskOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Quick Add Subtask</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Subtask Title *</label>
+              <Input
+                placeholder="Enter subtask title..."
+                value={quickSubtaskTitle}
+                onChange={(e) => setQuickSubtaskTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleQuickAddSubtask()}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Description can be added later by editing the subtask.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickAddSubtaskOpen(false)}>Cancel</Button>
+            <Button onClick={handleQuickAddSubtask}>Create Subtask</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CLONE TASK DIALOG */}
+      <Dialog open={cloneTaskOpen} onOpenChange={setCloneTaskOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Clone Task</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-slate-600">
+              Cloning: <span className="font-bold">{cloneTaskData?.name}</span>
+            </div>
+            <div>
+              <label className="text-sm font-medium">New Task Name</label>
+              <Input
+                placeholder="Enter new task name..."
+                value={cloneTaskNewName}
+                onChange={(e) => setCloneTaskNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCloneTask()}
+              />
+            </div>
+            <p className="text-xs text-slate-500">All subtasks and team members will be cloned.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloneTaskOpen(false)}>Cancel</Button>
+            <Button onClick={handleCloneTask}>Clone Task</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CLONE SUBTASK DIALOG */}
+      <Dialog open={cloneSubtaskOpen} onOpenChange={setCloneSubtaskOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Clone Subtask</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-slate-600">
+              Cloning: <span className="font-bold">{cloneSubtaskData?.title}</span>
+            </div>
+            <div>
+              <label className="text-sm font-medium">New Subtask Title</label>
+              <Input
+                placeholder="Enter new subtask title..."
+                value={cloneSubtaskNewTitle}
+                onChange={(e) => setCloneSubtaskNewTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCloneSubtask()}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloneSubtaskOpen(false)}>Cancel</Button>
+            <Button onClick={handleCloneSubtask}>Clone Subtask</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

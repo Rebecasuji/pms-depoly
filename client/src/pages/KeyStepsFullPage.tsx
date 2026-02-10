@@ -4,7 +4,6 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/apiClient";
 import {
@@ -140,8 +139,6 @@ export default function KeyStepsFullPage() {
     }
   };
 
-  const completedSteps = keySteps.filter(step => step.status === "completed").length;
-
   const getStatusIcon = (status: string) => {
     if (status === "completed") return <CheckCircle2 className="h-5 w-5 text-green-500" />;
     if (status === "in-progress") return <Clock className="h-5 w-5 text-blue-500" />;
@@ -189,22 +186,6 @@ export default function KeyStepsFullPage() {
             <Plus className="mr-2 h-4 w-4" /> New Key Step
           </Button>
         </div>
-
-        {/* Progress Card */}
-        <Card className="border-primary/10 bg-primary/5 mb-8">
-          <CardHeader className="pb-2">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-xl flex items-center gap-2">Overall Progress <span className="text-muted-foreground font-normal">|</span> <span className="text-primary">{getProjectName(selectedProjectId)}</span></CardTitle>
-                <CardDescription>{completedSteps} of {keySteps.length} phases completed</CardDescription>
-              </div>
-              <div className="text-3xl font-bold text-primary">{keySteps.length > 0 ? Math.round((completedSteps / keySteps.length) * 100) : 0}%</div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Progress value={keySteps.length > 0 ? (completedSteps / keySteps.length) * 100 : 0} className="h-2" />
-          </CardContent>
-        </Card>
 
         {/* Key Steps List */}
         <div className="space-y-4">

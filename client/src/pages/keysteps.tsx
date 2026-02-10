@@ -582,30 +582,6 @@ export default function KeySteps() {
         </div>
       </div>
 
-      {/* Progress Card */}
-      <Card className="border-primary/10 bg-primary/5">
-        <CardHeader className="pb-2">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-xl flex items-center gap-2">
-                Overall Progress
-                <span className="text-muted-foreground font-normal">|</span>
-                <span className="text-primary">{getProjectName(selectedProjectId)}</span>
-              </CardTitle>
-              <CardDescription>
-                {completedSteps} of {keySteps.length} phases completed
-              </CardDescription>
-            </div>
-            <div className="text-right">
-              <span className="text-2xl font-bold text-primary">{Math.round(progressPercent)}%</span>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Progress value={progressPercent} className="h-3 shadow-sm" />
-        </CardContent>
-      </Card>
-
       {/* Key Steps List */}
       <div className="grid gap-4">
         {keySteps.length > 0 ? (

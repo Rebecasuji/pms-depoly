@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/components/Layout";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Plus, Trash2, CheckCircle2, Circle } from "lucide-react";
 
@@ -15,6 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AddEditTask() {
@@ -29,6 +38,10 @@ export default function AddEditTask() {
   const [milestones, setMilestones] = useState<any[]>([]);
   const [subtasks, setSubtasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const { user } = useAuth();
 
   const [form, setForm] = useState({
     projectId: String(projectId || ""),
@@ -42,6 +55,13 @@ export default function AddEditTask() {
     assignerId: "",
     taskMembers: [] as string[],
   });
+
+  // When creating a new task, default assigner to current user's employee id
+  useEffect(() => {
+    if (!taskId && user?.employeeId) {
+      setForm(f => ({ ...f, assignerId: user.employeeId }));
+    }
+  }, [taskId, user]);
 
   // Load initial data - employees and projects
   useEffect(() => {
@@ -61,6 +81,11 @@ export default function AddEditTask() {
         if (!isMounted) return;
         setEmployees(Array.isArray(empData) ? empData : []);
         setProjects(Array.isArray(projData) ? projData : []);
+        
+        // If creating a new task (not editing), auto-assign from logged-in user
+        if (!taskId && user?.employeeId) {
+          setForm(f => ({ ...f, assignerId: String(user.employeeId) }));
+        }
       })
       .catch(err => {
         if (!isMounted) return;
@@ -141,7 +166,7 @@ export default function AddEditTask() {
   }, [form.projectId]);
 
   const addSubtask = () => {
-    setSubtasks(s => [...s, { id: undefined, title: "", isCompleted: false, assignedTo: [] }]);
+    setSubtasks(s => [...s, { id: undefined, title: "", description: "", isCompleted: false, assignedTo: [] }]);
   };
 
   const updateSubtask = (index: number, key: string, value: any) => {
@@ -193,6 +218,36 @@ export default function AddEditTask() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!taskId) return;
+    
+    setDeleting(true);
+    try {
+      const response = await apiFetch(`/api/tasks/${taskId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        toast({ variant: "destructive", title: "Error", description: error.message || "Failed to delete task" });
+        setDeleting(false);
+        return;
+      }
+
+      toast({
+        title: "Deleted",
+        description: `Task "${form.taskName}" deleted successfully!`,
+      });
+      
+      setDeleteDialogOpen(false);
+      setTimeout(() => navigate("/tasks"), 1000);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete task" });
+      console.error(err);
+      setDeleting(false);
     }
   };
 
@@ -250,7 +305,7 @@ export default function AddEditTask() {
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Add assignee..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   {employees.length > 0 ? (
                     employees.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)
                   ) : (
@@ -259,7 +314,7 @@ export default function AddEditTask() {
                 </SelectContent>
               </Select>
 
-              <div className="flex gap-2 flex-wrap mt-2">
+              <div className="flex gap-2 flex-wrap mt-2 max-h-[150px] overflow-y-auto">
                 {form.taskMembers.map(id => (
                   <Badge key={id} variant="secondary" className="text-xs cursor-pointer" onClick={() => setForm(f => ({ ...f, taskMembers: f.taskMembers.filter(x => x !== id) }))}>
                     {employees.find(e => e.id === id)?.name || id} ✕
@@ -396,6 +451,14 @@ export default function AddEditTask() {
                   </Button>
                 </div>
 
+                {/* Subtask Description */}
+                <Input
+                  placeholder="Description (optional)"
+                  value={st.description || ""}
+                  onChange={e => updateSubtask(i, "description", e.target.value)}
+                  className="h-8 text-xs"
+                />
+
                 <Select
                   value=""
                   onValueChange={id => {
@@ -433,23 +496,73 @@ export default function AddEditTask() {
           </div>
 
           {/* Buttons */}
-          <div className="flex gap-4 justify-end border-t pt-6">
+          <div className="flex gap-4 justify-between border-t pt-6">
+            {/* Delete button (only show when editing) */}
+            {taskId && (
+              <Button
+                variant="destructive"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={loading || deleting}
+                className="flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete Task
+              </Button>
+            )}
+            <div className="flex gap-4 ml-auto">
+              <Button
+                variant="outline"
+                onClick={() => navigate("/tasks")}
+                disabled={loading || deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={loading || deleting}
+              >
+                {loading ? "Saving..." : taskId ? "Save Changes" : "Create Task"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Task</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this task? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm">
+            Task: <span className="font-bold">{form.taskName}</span>
+          </p>
+          {subtasks.length > 0 && (
+            <p className="text-sm text-amber-600">
+              ⚠️ This task has {subtasks.length} subtask{subtasks.length !== 1 ? 's' : ''} that will also be deleted.
+            </p>
+          )}
+          <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => navigate("/tasks")}
-              disabled={loading}
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleSave}
-              disabled={loading}
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
             >
-              {loading ? "Saving..." : taskId ? "Save Changes" : "Create Task"}
+              {deleting ? "Deleting..." : "Delete Task"}
             </Button>
-          </div>
-        </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

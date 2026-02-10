@@ -29,6 +29,7 @@ import {
   Plus,
   Briefcase,
   Calendar,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -208,6 +209,8 @@ export default function Dashboard() {
   const completedCount = tasks.filter((t) =>
     ["completed", "done", "closed"].includes(String(t.status).toLowerCase())
   ).length;
+
+  const unassignedCount = tasks.filter((t) => !t.assignerId).length;
 
   const completionPercent =
     tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
@@ -453,7 +456,7 @@ export default function Dashboard() {
       </div>
 
       {/* TOP STATS */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
 
         {/* PROJECTS */}
         <Card className="hover:shadow-lg hover:scale-105 transition-transform transition-shadow">
@@ -522,6 +525,33 @@ export default function Dashboard() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        {/* UNASSIGNED TASKS */}
+        <Card className="hover:shadow-lg hover:scale-105 transition-transform transition-shadow">
+          <CardHeader className="flex justify-between pb-2">
+            <CardTitle className="text-sm">Unassigned Tasks</CardTitle>
+            <AlertCircle className="h-4 w-4 text-amber-500" />
+          </CardHeader>
+
+          <CardContent className="space-y-3">
+            {/* Main Count */}
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-amber-600">{unassignedCount}</div>
+              <span className="text-xs text-muted-foreground">
+                Need action
+              </span>
+            </div>
+
+            {/* Divider */}
+            <div className="h-px bg-border" />
+
+            {/* Sub info row */}
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Pending assignment</span>
+              <span>{tasks.length === 0 ? "0" : Math.round((unassignedCount / tasks.length) * 100)}%</span>
+            </div>
           </CardContent>
         </Card>
 
