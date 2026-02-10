@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -352,7 +352,7 @@ export default function Tasks() {
             <Plus className="h-4 w-4 mr-1" /> Add Task
           </Button>
 
-          <Button 
+          <Button
             onClick={() => setQuickAddTaskOpen(true)}
             variant="outline"
             className="border-amber-200 text-amber-700 hover:bg-amber-50"
@@ -364,18 +364,29 @@ export default function Tasks() {
 
       {/* MAIN TABLE */}
       <div className="bg-white border rounded-xl overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table className="w-full border-collapse table-fixed">
+          <colgroup>
+            <col style={{ width: "4%" }} />
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "8%" }} />
+          </colgroup>
           <thead>
             <tr className="bg-slate-100 border-b">
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-12"></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 w-64">Task Name</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 w-56">Assignees</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-28">Start Date</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-28">End Date</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Status</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Priority</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-20">Subtasks</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-24">Actions</th>
+              <th className="px-2 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r"></th>
+              <th className="px-3 py-3 text-left text-xs font-bold uppercase text-slate-600 border-r">Task Name</th>
+              <th className="px-3 py-3 text-left text-xs font-bold uppercase text-slate-600 border-r">Assignees</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r">Start Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r">End Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r">Status</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r">Priority</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r">Subtasks</th>
+              <th className="px-2 py-3 text-center text-xs font-bold uppercase text-slate-600">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -385,10 +396,10 @@ export default function Tasks() {
               </tr>
             ) : (
               filteredTasks.map(task => (
-                <tbody key={task.id}>
+                <Fragment key={task.id}>
                   {/* MAIN TASK ROW */}
                   <tr className="border-b hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-3 text-center w-12">
+                    <td className="px-2 py-3 text-center border-r">
                       <button
                         onClick={() => toggleExpand(task.id)}
                         className="text-slate-500 hover:text-slate-700 flex justify-center"
@@ -400,7 +411,7 @@ export default function Tasks() {
                         )}
                       </button>
                     </td>
-                    <td className="px-4 py-3 w-64 align-top">
+                    <td className="px-3 py-3 align-top border-r">
                       <span
                         className={`text-sm font-medium block ${
                           task.status === "Completed"
@@ -416,7 +427,7 @@ export default function Tasks() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 w-56 align-top">
+                    <td className="px-3 py-3 align-top border-r">
                       <div className="flex gap-1 flex-wrap items-center">
                         {(task.taskMembers || []).length > 0 ? (
                           <>
@@ -440,13 +451,13 @@ export default function Tasks() {
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-center text-sm text-slate-600 w-28">
+                    <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
                       {task.startDate ? new Date(task.startDate).toLocaleDateString() : "N/A"}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm text-slate-600 w-28">
+                    <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
                       {task.endDate ? new Date(task.endDate).toLocaleDateString() : "N/A"}
                     </td>
-                    <td className="px-3 py-3 text-center w-24">
+                    <td className="px-3 py-3 text-center border-r">
                       <Badge
                         variant={
                           task.status === "Completed" ? "default" : "outline"
@@ -456,7 +467,7 @@ export default function Tasks() {
                         {task.status}
                       </Badge>
                     </td>
-                    <td className="px-3 py-3 text-center w-24">
+                    <td className="px-3 py-3 text-center border-r">
                       <Badge
                         variant="outline"
                         className={`text-xs whitespace-nowrap inline-flex justify-center ${
@@ -470,13 +481,13 @@ export default function Tasks() {
                         {task.priority || "—"}
                       </Badge>
                     </td>
-                    <td className="px-3 py-3 text-center w-20">
+                    <td className="px-3 py-3 text-center border-r">
                       <Badge variant="secondary" className="text-xs inline-flex justify-center w-full">
                         {task.subtasks?.length || 0}
                       </Badge>
                     </td>
-                    <td className="px-3 py-3 text-center w-24">
-                      <div className="flex gap-2 justify-center items-center">
+                    <td className="px-2 py-3 text-center">
+                      <div className="flex gap-1 justify-center items-center">
                         <button
                           onClick={() => navigate(`/add-task?id=${task.id}&projectId=${task.projectId}`)}
                           className="text-blue-600 hover:text-blue-700"
@@ -509,7 +520,7 @@ export default function Tasks() {
                   {/* EXPANDED SUBTASKS ROW */}
                   {expandedTasks.includes(task.id) && (
                     <tr className="bg-slate-50 border-b">
-                      <td colSpan={9} className="px-6 py-4">
+                      <td colSpan={9} className="px-4 py-4">
                         <div className="space-y-4">
                           {/* Description */}
                           {task.description && (
@@ -622,7 +633,7 @@ export default function Tasks() {
                       </td>
                     </tr>
                   )}
-                </tbody>
+                </Fragment>
               ))
             )}
           </tbody>
@@ -724,7 +735,7 @@ export default function Tasks() {
             <div>
               <label className="text-sm font-medium">New Subtask Title</label>
               <Input
-                placeholder="Enter new subtask title..."
+                placeholder="Enter new task title..."
                 value={cloneSubtaskNewTitle}
                 onChange={(e) => setCloneSubtaskNewTitle(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCloneSubtask()}

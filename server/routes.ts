@@ -1393,6 +1393,7 @@ export async function registerRoutes(
             id: subtasks.id,
             taskId: subtasks.taskId,
             title: subtasks.title,
+            description: subtasks.description,
             isCompleted: subtasks.isCompleted,
             assignedTo: subtasks.assignedTo,
           })
@@ -1436,6 +1437,7 @@ export async function registerRoutes(
         subtaskMap.get(s.taskId)!.push({
           id: s.id,
           title: s.title,
+          description: s.description || "",
           isCompleted: s.isCompleted,
           assignedTo: assigned,
         });
@@ -1467,7 +1469,7 @@ export async function registerRoutes(
         .where(eq(taskMembers.taskId, id));
 
       const subs = await db
-        .select({ id: subtasks.id, title: subtasks.title, isCompleted: subtasks.isCompleted, assignedTo: subtasks.assignedTo })
+        .select({ id: subtasks.id, title: subtasks.title, description: subtasks.description, isCompleted: subtasks.isCompleted, assignedTo: subtasks.assignedTo })
         .from(subtasks)
         .where(eq(subtasks.taskId, id));
 
@@ -1494,7 +1496,7 @@ export async function registerRoutes(
       const result = {
         ...task,
         taskMembers: members.map(m => m.employeeId),
-        subtasks: subs.map(s => ({ id: s.id, title: s.title, isCompleted: s.isCompleted, assignedTo: subtaskMembersMap.get(s.id) || (s.assignedTo ? [s.assignedTo] : []) })),
+        subtasks: subs.map(s => ({ id: s.id, title: s.title, description: s.description || "", isCompleted: s.isCompleted, assignedTo: subtaskMembersMap.get(s.id) || (s.assignedTo ? [s.assignedTo] : []) })),
       };
 
       res.json(result);
