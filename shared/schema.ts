@@ -58,6 +58,8 @@ export const projects = pgTable("projects", {
 
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
+  // Track which employee created the project (optional)
+  createdByEmployeeId: uuid("created_by_employee_id"),
 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -139,6 +141,14 @@ export const projectTasks = pgTable("project_tasks", {
 ================================ */
 export const taskMembers = pgTable("task_members", {
   taskId: uuid("task_id").notNull(),
+  employeeId: uuid("employee_id").notNull(),
+});
+
+/* ===============================
+   SUBTASK MEMBERS (many-to-many)
+================================ */
+export const subtaskMembers = pgTable("subtask_members", {
+  subtaskId: uuid("subtask_id").notNull().references(() => subtasks.id, { onDelete: "cascade" }),
   employeeId: uuid("employee_id").notNull(),
 });
 

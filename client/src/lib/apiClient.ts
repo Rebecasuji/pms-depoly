@@ -59,7 +59,9 @@ export const apiFetch = (url: string, opts?: RequestInit) => {
 
   // Deduplicate in-flight requests
   if (isGetRequest && inFlightRequests.has(url)) {
-    return inFlightRequests.get(url)!;
+    // Return a cloned Response for each duplicate consumer so callers can
+    // independently call `response.json()` without consuming the same body stream.
+    return inFlightRequests.get(url)!.then((r) => r.clone());
   }
 
   // Invalidate cache on mutations

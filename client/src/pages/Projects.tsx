@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import {
   Search,
   Plus,
@@ -64,6 +65,7 @@ export default function Projects() {
   const userDepartment = user?.department || null;
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
@@ -74,6 +76,10 @@ export default function Projects() {
   // For non-admins, default to "all" so backend filters by department
   // Admins can see truly all projects with "all"
   const [departmentFilter, setDepartmentFilter] = useState<string>(isAdmin ? "all" : "all");
+  // Sorting
+  const [sortKey, setSortKey] = useState<string>(() => localStorage.getItem("projects_sort_key") || "name");
+  const [sortDir, setSortDir] = useState<string>(() => localStorage.getItem("projects_sort_dir") || "asc");
+  const [, setLocation] = useLocation();
   const [formProject, setFormProject] = useState({
     title: "",
     projectCode: "",
@@ -93,6 +99,19 @@ export default function Projects() {
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
 
   // use shared apiFetch from lib/apiClient (includes caching, dedupe, auth)
+
+  // FETCH DEPARTMENTS
+  const fetchDepartments = async () => {
+    try {
+      const res = await apiFetch("/api/departments");
+      if (!res.ok) throw new Error("Failed to fetch departments");
+      const data = await res.json();
+      setDepartments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch departments", err);
+      setDepartments([]);
+    }
+  };
 
   // FETCH PROJECTS
   const fetchProjects = async () => {
@@ -156,6 +175,7 @@ export default function Projects() {
   useEffect(() => {
     const loadInitialData = async () => {
       await fetchEmployees();
+      await fetchDepartments();
     };
 
     loadInitialData();
@@ -183,9 +203,12 @@ export default function Projects() {
 
     const matchesStatus = statusFilter === "all" || p.status === statusFilter;
 
+    // Normalize department filter value to match backend normalization
+    const filterDeptNorm = departmentFilter === "all" ? "" : departmentFilter.toLowerCase();
+    const projectDepts = (p.department || []).map((d: string) => d.toLowerCase());
     const matchesDepartment =
       departmentFilter === "all" ||
-      (p.department || []).includes(departmentFilter);
+      projectDepts.includes(filterDeptNorm);
 
     return matchesSearch && matchesStatus && matchesDepartment;
   });
@@ -455,8 +478,13 @@ export default function Projects() {
       )
     : employees;
 
+  // Apply department filtering to the team picker (if departments selected)
+  const filteredEmployeesForPicker = formProject.department.length > 0
+    ? filteredEmployeesForTeam.filter(emp => formProject.department.includes(emp.department))
+    : filteredEmployeesForTeam;
+
   // Group filtered employees by department
-  const filteredEmployeesByDepartment = filteredEmployeesForTeam.reduce((acc, emp) => {
+  const filteredEmployeesByDepartment = filteredEmployeesForPicker.reduce((acc, emp) => {
     const dept = emp.department || "General";
     if (!acc[dept]) {
       acc[dept] = [];
@@ -466,6 +494,43 @@ export default function Projects() {
   }, {} as Record<string, any[]>);
 
   const filteredSortedDepartments = Object.keys(filteredEmployeesByDepartment).sort();
+
+  const formatDateDisplay = (d: string | undefined | null) => {
+    if (!d) return "Not set";
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return d;
+      const dd = String(dt.getDate()).padStart(2, "0");
+      const mon = dt.toLocaleString("en-US", { month: "short" });
+      return `${dd}-${mon}-${dt.getFullYear()}`;
+    } catch {
+      return d;
+    }
+  };
+
+  // Apply sorting to filtered projects
+  const sortedProjects = [...filteredProjects].sort((a, b) => {
+    const key = sortKey;
+    let va: any = a[key === 'name' ? 'title' : (key === 'created' ? 'createdAt' : 'endDate')];
+    let vb: any = b[key === 'name' ? 'title' : (key === 'created' ? 'createdAt' : 'endDate')];
+    if (!va) va = "";
+    if (!vb) vb = "";
+    if (key === 'created' || key === 'end') {
+      va = new Date(va).getTime() || 0;
+      vb = new Date(vb).getTime() || 0;
+    } else {
+      va = String(va).toLowerCase();
+      vb = String(vb).toLowerCase();
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("projects_sort_key", sortKey);
+    localStorage.setItem("projects_sort_dir", sortDir);
+  }, [sortKey, sortDir]);
 
   return (
     <div className="space-y-6">
@@ -631,11 +696,11 @@ export default function Projects() {
                         setTeamMemberSearch("");
                       }}
                     >
-                      <SelectTrigger className="w-full bg-background">
-                        <SelectValue placeholder={filteredEmployeesForTeam.length === 0 ? "No employees match search" : "Select employee to add..."} />
+                        <SelectTrigger className="w-full bg-background">
+                        <SelectValue placeholder={filteredEmployeesForPicker.length === 0 ? "No employees match search" : "Select employee to add..."} />
                       </SelectTrigger>
                       <SelectContent className="max-h-[300px] w-full">
-                        {filteredEmployeesForTeam.length === 0 ? (
+                        {filteredEmployeesForPicker.length === 0 ? (
                           <div className="p-2 text-sm text-muted-foreground">
                             No employees found
                           </div>
@@ -690,6 +755,9 @@ export default function Projects() {
                                 <div className="flex flex-col min-w-0">
                                   <span className="text-xs font-bold truncate">{emp?.name || id}</span>
                                   <span className="text-[9px] text-muted-foreground truncate uppercase">{emp?.designation || "Staff"}</span>
+                                  {formProject.department.length > 0 && emp && !formProject.department.includes(emp.department) && (
+                                    <span className="text-[9px] text-destructive">Inactive / Not in department</span>
+                                  )}
                                 </div>
                                 <Button
                                   variant="ghost"
@@ -838,26 +906,46 @@ export default function Projects() {
         </div>
 
         {/* Department Filter - Only for Admins */}
-        {isAdmin && (
+        {isAdmin && departments.length > 0 && (
           <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
             <SelectTrigger className="w-full md:w-56">
               <SelectValue placeholder="All Departments" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Departments</SelectItem>
-              <SelectItem value="HR">HR</SelectItem>
-              <SelectItem value="Operations">Operations</SelectItem>
-              <SelectItem value="Software Developers">Software Developers</SelectItem>
-              <SelectItem value="Finance">Finance</SelectItem>
-              <SelectItem value="Purchase">Purchase</SelectItem>
-              <SelectItem value="Presales">Presales</SelectItem>
-              <SelectItem value="IT Support">IT Support</SelectItem>
-              <SelectItem value="General">General</SelectItem>
+              {departments.map((dept) => (
+                <SelectItem key={dept} value={dept.toLowerCase()}>
+                  {dept}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         )}
 
         {/* Status Filter */}
+        {/* Sort */}
+        <div className="flex gap-2">
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v)}>
+            <SelectTrigger className="w-full md:w-48">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">Project Name (A–Z)</SelectItem>
+              <SelectItem value="created">Created Date</SelectItem>
+              <SelectItem value="end">End Date</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={sortDir} onValueChange={(v) => setSortDir(v)}>
+            <SelectTrigger className="w-full md:w-36">
+              <SelectValue placeholder="Direction" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="asc">Asc</SelectItem>
+              <SelectItem value="desc">Desc</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full md:w-40">
             <SelectValue placeholder="Filter by status" />
@@ -882,80 +970,25 @@ export default function Projects() {
             </CardContent>
           </Card>
         ) : (
-          filteredProjects.map(project => {
+          sortedProjects.map(project => {
             const isExpanded = expandedId === project.id;
 
             return (
               <Card key={project.id} className="hover:shadow-sm transition-all overflow-hidden border-muted/60">
-                <div
-                  className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/20"
-                  // UPDATED CLICK LOGIC
-                  onClick={() => {
-                    const next = isExpanded ? null : project.id;
-                    setExpandedId(next);
-                    if (!isExpanded) {
-                      fetchProjectFiles(project.id);
-                    }
-                  }}
-                >
+                <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/20" onClick={() => {
+                    // Toggle expanded details view
+                    setExpandedId(isExpanded ? null : project.id);
+                  }}>
                   <div className="flex items-center gap-4 flex-1">
-                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-foreground leading-tight">{project.title}</span>
-                        {project.projectCode && (
-                          <span className="text-[10px] text-muted-foreground font-mono font-medium uppercase tracking-wider mt-0.5">
-                            {project.projectCode}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(project.status)}
-                        {project.clientName && (
-                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                            <Building2 className="h-3 w-3" /> {project.clientName}
-                          </span>
-                        )}
-                      </div>
+                    <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    <div className="flex-1">
+                      <span className="font-bold text-foreground leading-tight">{project.title}</span>
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-6">
-                    <div className="hidden md:flex items-center gap-3 w-32">
-                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${getProgressColorClass(project.progress)}`}
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-medium">{project.progress}%</span>
+                    <div className="flex items-center gap-6">
+                      <div className="text-sm text-muted-foreground">{employees.find(e => e.id === project.createdByEmployeeId)?.name || "-"}</div>
+                      <div className="text-sm text-muted-foreground">{formatDateDisplay(project.createdAt)}</div>
+                      <div className="text-sm text-muted-foreground">{project.endDate ? formatDateDisplay(project.endDate) : "Not set"}</div>
                     </div>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setExpandedId(project.id); }}>
-                          <Eye className="mr-2 h-4 w-4" /> View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenEdit(project); }}>
-                          <Edit className="mr-2 h-4 w-4" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setProjectToDelete(project.id);
-                            setDeleteConfirmOpen(true);
-                          }}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                   </div>
                 </div>
 
@@ -1108,6 +1141,30 @@ export default function Projects() {
                             </div>
                           </div>
                         </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-3 pt-4 border-t border-muted/40">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenEdit(project)}
+                          className="flex items-center gap-2"
+                        >
+                          <Edit className="h-4 w-4" />
+                          Edit Project
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            localStorage.setItem("selectedProjectId", String(project.id));
+                            setLocation('/keysteps');
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Go to Key Steps
+                        </Button>
                       </div>
                     </div>
                   </CardContent>

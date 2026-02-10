@@ -241,6 +241,32 @@ export default function AddEditTask() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label className="text-sm font-semibold mb-2 block">Assignees (multiple)</Label>
+              <Select
+                value=""
+                onValueChange={v => setForm(f => ({ ...f, taskMembers: Array.isArray(f.taskMembers) ? Array.from(new Set([...f.taskMembers, v])) : [v] }))}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="Add assignee..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.length > 0 ? (
+                    employees.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">No employees available</div>
+                  )}
+                </SelectContent>
+              </Select>
+
+              <div className="flex gap-2 flex-wrap mt-2">
+                {form.taskMembers.map(id => (
+                  <Badge key={id} variant="secondary" className="text-xs cursor-pointer" onClick={() => setForm(f => ({ ...f, taskMembers: f.taskMembers.filter(x => x !== id) }))}>
+                    {employees.find(e => e.id === id)?.name || id} ✕
+                  </Badge>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Milestone */}

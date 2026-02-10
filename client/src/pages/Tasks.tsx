@@ -63,6 +63,7 @@ export default function Tasks() {
   const [projects, setProjects] = useState<any[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [milestones, setMilestones] = useState<any[]>([]);
+  const [selectedKeyStepId, setSelectedKeyStepId] = useState<string>("");
 
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -84,11 +85,20 @@ export default function Tasks() {
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
         setProjects(arr);
-        if (arr.length > 0 && !projectId) {
+        const saved = localStorage.getItem("selectedProjectId");
+        if (saved) {
+          setProjectId(String(saved));
+          localStorage.removeItem("selectedProjectId");
+        } else if (arr.length > 0 && !projectId) {
           setProjectId(String(arr[0].id));
         }
       })
       .catch(() => setProjects([]));
+    const savedKey = localStorage.getItem("selectedKeyStepId");
+    if (savedKey) {
+      setSelectedKeyStepId(savedKey);
+      localStorage.removeItem("selectedKeyStepId");
+    }
   }, []);
 
   /* ================= LOAD PROJECT-SPECIFIC DATA ================= */
@@ -163,9 +173,12 @@ export default function Tasks() {
 
   /* ================= SUBTASK HANDLERS ================= */
 
-  const filteredTasks = tasks.filter(t =>
-    (t.taskName || "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Apply search and optional keystep filter
+  const filteredTasks = tasks.filter(t => {
+    const matchesSearch = (t.taskName || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesKey = selectedKeyStepId ? String(t.keyStepId) === String(selectedKeyStepId) : true;
+    return matchesSearch && matchesKey;
+  });
 
   return (
     <div className="space-y-6 p-6 bg-slate-50 min-h-screen">
@@ -217,13 +230,13 @@ export default function Tasks() {
       {/* MAIN TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="grid grid-cols-12 bg-slate-100 border-b text-[10px] font-bold p-4 uppercase text-slate-500">
-          <div className="col-span-3">Task</div>
-          <div className="col-span-2">Project</div>
-          <div className="col-span-2">Milestone</div>
-          <div className="col-span-1 text-center">Assigner</div>
-          <div className="col-span-2 text-center">Due</div>
+          <div className="col-span-3">Task Name</div>
+          <div className="col-span-3">Assignees</div>
+          <div className="col-span-1 text-center">Start</div>
+          <div className="col-span-1 text-center">End</div>
           <div className="col-span-1 text-center">Status</div>
-          <div className="col-span-1 text-right">Actions</div>
+          <div className="col-span-1 text-center">Priority</div>
+          <div className="col-span-2 text-right">Last Updated</div>
         </div>
 
         {filteredTasks.length === 0 && (
@@ -232,38 +245,21 @@ export default function Tasks() {
 
         {filteredTasks.map(task => (
           <div key={task.id} className="border-b hover:bg-slate-50">
-            <div className="grid grid-cols-12 items-center p-4 text-xs">
-              <div className="col-span-3 flex items-center gap-2">
-                <button onClick={() => toggleExpand(task.id)}>
-                  {expandedTasks.includes(task.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                </button>
-                <span className={task.status === "Completed" ? "line-through opacity-50" : ""}>
-                  {task.taskName}
-                </span>
+              <div className="grid grid-cols-12 items-center p-4 text-xs">
+              <div className="col-span-3">
+                <button onClick={() => toggleExpand(task.id)} className="mr-2">{expandedTasks.includes(task.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
+                <span className={task.status === "Completed" ? "line-through opacity-50" : ""}>{task.taskName}</span>
               </div>
-              <div className="col-span-2 text-slate-500">
-                {projects.find(p => p.id === task.projectId)?.title || "Unknown"}
+              <div className="col-span-3 flex gap-2 flex-wrap">
+                {(task.taskMembers || []).map(id => (
+                  <Badge key={id} variant="outline" className="text-[10px]">{employees.find(e => e.id === id)?.name || id}</Badge>
+                ))}
               </div>
-              <div className="col-span-2 text-slate-500 italic">
-                {task.keyStepId && task.keyStepId !== "none"
-                  ? milestones.find(m => m.id === task.keyStepId)?.title || "Linked"
-                  : "—"}
-              </div>
-              <div className="col-span-1 text-center">
-                {employees.find(e => e.id === task.assignerId)?.name || "—"}
-              </div>
-              <div className="col-span-2 text-center text-slate-500 flex justify-center gap-1">
-                <Calendar size={14} /> {task.endDate || "N/A"}
-              </div>
-              <div className="col-span-1 text-center">
-                <Badge variant={task.status === "Completed" ? "default" : "outline"}>
-                  {task.status}
-                </Badge>
-              </div>
-              <div className="col-span-1 text-right flex justify-end gap-1">
-                <Button size="icon" variant="ghost" onClick={() => openEdit(task)}><Edit size={14} /></Button>
-                <Button size="icon" variant="ghost" className="text-red-500" onClick={() => askDelete(task)}><Trash2 size={14} /></Button>
-              </div>
+              <div className="col-span-1 text-center text-slate-500">{task.startDate || 'N/A'}</div>
+              <div className="col-span-1 text-center text-slate-500">{task.endDate || 'N/A'}</div>
+              <div className="col-span-1 text-center"><Badge variant={task.status === "Completed" ? "default" : "outline"}>{task.status}</Badge></div>
+              <div className="col-span-1 text-center text-slate-500">{task.priority || '—'}</div>
+              <div className="col-span-2 text-right text-slate-500">{task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '-'}</div>
             </div>
 
             {/* EXPANDED VIEW */}

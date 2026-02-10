@@ -213,7 +213,12 @@ export default function KeyStepsFullPage() {
               <div key={step.id}>
                 <Card 
                   className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-primary"
-                  onClick={() => toggleExpand(step.id)}
+                  onClick={() => {
+                    // Navigate directly to Tasks for this key step
+                    localStorage.setItem("selectedProjectId", String(step.projectId));
+                    localStorage.setItem("selectedKeyStepId", String(step.id));
+                    setLocation('/tasks');
+                  }}
                 >
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">

@@ -615,7 +615,12 @@ export default function KeySteps() {
             .map((step) => (
               <div key={step.id}>
                 <Card
-                  className="group hover:border-primary/50 transition-all duration-200 shadow-sm overflow-hidden"
+                  className="group hover:border-primary/50 transition-all duration-200 shadow-sm overflow-hidden cursor-pointer"
+                  onClick={() => {
+                    localStorage.setItem("selectedProjectId", String(selectedProjectId));
+                    localStorage.setItem("selectedKeyStepId", String(step.id));
+                    window.location.href = '/tasks';
+                  }}
                 >
                   {step.header && (
                     <div className="bg-muted/30 px-6 py-2 border-b flex items-center gap-2">
@@ -650,7 +655,7 @@ export default function KeySteps() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => handleEditStep(step)}
+                          onClick={(e) => { e.stopPropagation(); handleEditStep(step); }}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -658,10 +663,7 @@ export default function KeySteps() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                          onClick={() => {
-                            setStepToDelete(step);  // set the step to be deleted
-                            setOpenDeleteDialog(true); // open confirmation dialog
-                          }}
+                          onClick={(e) => { e.stopPropagation(); setStepToDelete(step); setOpenDeleteDialog(true); }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -679,21 +681,12 @@ export default function KeySteps() {
                         <p className="text-sm text-muted-foreground whitespace-pre-wrap">{step.requirements}</p>
                       </div>
                     )}
-                    <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground pt-2">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>Starts: {step.startDate}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        <span>Ends: {step.endDate}</span>
-                      </div>
-                    </div>
                     <div className="pt-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setParentKeyStepForSubmilestone(step);
                           setNewStep({
                             header: step.header || "",
@@ -709,9 +702,9 @@ export default function KeySteps() {
                           });
                           setOpenDialog(true);
                         }}
+                        className="w-full"
                       >
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Sub-Milestone
+                        <Plus className="h-3 w-3 mr-1" /> Add Sub-Milestone
                       </Button>
                     </div>
                   </CardContent>

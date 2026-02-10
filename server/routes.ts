@@ -19,6 +19,7 @@ import {
   projectTasks,
   taskMembers,
   subtasks,
+  subtaskMembers,
 } from "../shared/schema.ts";
 
 
@@ -40,6 +41,16 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
+
+  // Helper: normalize department strings for robust matching
+  function normalizeDept(input?: string | null) {
+    if (!input) return "";
+    // Trim, collapse multi-spaces, lowercase
+    let v = String(input).trim().toLowerCase().replace(/\s+/g, " ");
+    // Basic plural normalization: turn trailing 's' into singular (operations -> operation)
+    if (v.length > 3 && v.endsWith("s")) v = v.slice(0, -1);
+    return v;
+  }
 
   // Helper: find session by token and attach user info
   async function getUserFromToken(token?: string | null) {
@@ -231,6 +242,7 @@ export async function registerRoutes(
           endDate: projects.endDate,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
+          createdByEmployeeId: projects.createdByEmployeeId,
         })
         .from(projects)
         .orderBy(projects.createdAt);
@@ -259,9 +271,9 @@ export async function registerRoutes(
       // Normalize and index related rows for robust comparisons
       departments.forEach((d) => {
         const pid = String(d.projectId);
-        const dept = (d.department || "").toString().trim().toLowerCase();
+        const dept = normalizeDept((d.department || "").toString());
         if (!departmentMap.has(pid)) departmentMap.set(pid, [] as string[]);
-        if (dept) departmentMap.get(pid).push(dept);
+        if (dept && !departmentMap.get(pid).includes(dept)) departmentMap.get(pid).push(dept);
       });
 
       teamMembers.forEach((m) => {
@@ -283,8 +295,8 @@ export async function registerRoutes(
       } else {
         if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
 
-        // Normalize requester's department for case-insensitive matching
-        const reqDeptNorm = String(requestingEmployeeDepartment || "").trim().toLowerCase();
+        // Normalize requester's department for robust matching
+        const reqDeptNorm = normalizeDept(requestingEmployeeDepartment);
         const teamProjectIds = new Set((membershipResults as any[]).map((m) => String(m.projectId)));
 
         projectRows = allProjects.filter((p) => {
@@ -371,6 +383,7 @@ export async function registerRoutes(
           progress: Math.min(100, Math.max(0, Number(progress) || 0)),
           startDate: finalStartDate as any,
           endDate: finalEndDate as any,
+          createdByEmployeeId: req.employee?.id || null,
         })
         .returning();
 
@@ -382,10 +395,12 @@ export async function registerRoutes(
       if (Array.isArray(department) && department.length > 0) {
         insertPromises.push(
           db.insert(projectDepartments).values(
-            department.filter(d => d?.trim()).map((dept: string) => ({
-              projectId,
-              department: dept.trim().toLowerCase(),
-            }))
+            department
+              .filter(d => d?.trim())
+              .map((dept: string) => ({
+                projectId,
+                department: normalizeDept(dept),
+              }))
           )
         );
       }
@@ -423,6 +438,7 @@ export async function registerRoutes(
         department: department || [],
         team: team || [],
         vendors: vendorList || [],
+        createdByEmployeeId: created.createdByEmployeeId || null,
       };
 
       res.json(result);
@@ -508,7 +524,7 @@ export async function registerRoutes(
         await db.insert(projectDepartments).values(
           department.map((dept: string) => ({
             projectId: id,
-            department: String(dept).trim().toLowerCase(),
+            department: normalizeDept(String(dept)),
           }))
         );
       }
@@ -880,10 +896,27 @@ export async function registerRoutes(
           taskId: task.id,
           title: st.title || null,
           isCompleted: !!st.isCompleted,
+          // keep single-column for backward compatibility; we also persist members into subtask_members
           assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
         }));
         console.log("Inserting subtasks:", rows);
-        await db.insert(subtasks).values(rows);
+        const inserted = await db.insert(subtasks).values(rows).returning();
+
+        // If there are subtask members provided as arrays, insert into subtask_members mapping
+        try {
+          const memberInserts: any[] = [];
+          inserted.forEach((ins: any, idx: number) => {
+            const incoming = incomingSubtasks[idx];
+            if (Array.isArray(incoming.assignedTo) && incoming.assignedTo.length > 0) {
+              incoming.assignedTo.forEach((empId: string) => memberInserts.push({ subtaskId: ins.id, employeeId: empId }));
+            }
+          });
+          if (memberInserts.length > 0) {
+            await db.insert(subtaskMembers).values(memberInserts);
+          }
+        } catch (err) {
+          console.warn("Failed to insert subtask_members mapping:", err);
+        }
       }
 
       res.json(task);
@@ -972,7 +1005,23 @@ export async function registerRoutes(
           assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
         }));
         console.log("Updating subtasks:", rows);
-        await db.insert(subtasks).values(rows);
+        const inserted = await db.insert(subtasks).values(rows).returning();
+
+        // persist subtask members mapping
+        try {
+          const memberInserts: any[] = [];
+          inserted.forEach((ins: any, idx: number) => {
+            const incoming = incomingSubtasks[idx];
+            if (Array.isArray(incoming.assignedTo) && incoming.assignedTo.length > 0) {
+              incoming.assignedTo.forEach((empId: string) => memberInserts.push({ subtaskId: ins.id, employeeId: empId }));
+            }
+          });
+          if (memberInserts.length > 0) {
+            await db.insert(subtaskMembers).values(memberInserts);
+          }
+        } catch (err) {
+          console.warn("Failed to insert subtask_members mapping:", err);
+        }
       }
 
       res.json(updated);
@@ -1157,6 +1206,20 @@ export async function registerRoutes(
           .where(inArray(subtasks.taskId, taskIds)),
       ]);
 
+      // Fetch subtask member mappings for subtasks we just retrieved
+      let subtaskMemberRows: any[] = [];
+      try {
+        const subtaskIds = subs.map((s: any) => s.id).filter(Boolean);
+        if (subtaskIds.length > 0) {
+          subtaskMemberRows = await db
+            .select({ subtaskId: subtaskMembers.subtaskId, employeeId: subtaskMembers.employeeId })
+            .from(subtaskMembers)
+            .where(inArray(subtaskMembers.subtaskId, subtaskIds));
+        }
+      } catch (e) {
+        subtaskMemberRows = [];
+      }
+
       // Build maps for O(1) lookups
       const memberMap = new Map<string, string[]>();
       const subtaskMap = new Map<string, any[]>();
@@ -1166,13 +1229,21 @@ export async function registerRoutes(
         memberMap.get(m.taskId)!.push(m.employeeId);
       });
 
+      // Build a map of subtaskId -> assigned employee ids (supports many-to-many)
+      const subtaskMembersMap = new Map<string, string[]>();
+      (subtaskMemberRows || []).forEach((r: any) => {
+        if (!subtaskMembersMap.has(r.subtaskId)) subtaskMembersMap.set(r.subtaskId, []);
+        subtaskMembersMap.get(r.subtaskId)!.push(r.employeeId);
+      });
+
       subs.forEach((s) => {
         if (!subtaskMap.has(s.taskId)) subtaskMap.set(s.taskId, []);
+        const assigned = subtaskMembersMap.get(s.id) || (s.assignedTo ? [s.assignedTo] : []);
         subtaskMap.get(s.taskId)!.push({
           id: s.id,
           title: s.title,
           isCompleted: s.isCompleted,
-          assignedTo: s.assignedTo ? [s.assignedTo] : [],
+          assignedTo: assigned,
         });
       });
 
@@ -1206,10 +1277,30 @@ export async function registerRoutes(
         .from(subtasks)
         .where(eq(subtasks.taskId, id));
 
+      // Fetch subtask members mapping for these subtasks
+      const subtaskIds = subs.map((s: any) => s.id).filter(Boolean);
+      let subtaskMemberRows: any[] = [];
+      if (subtaskIds.length > 0) {
+        try {
+          subtaskMemberRows = await db
+            .select({ subtaskId: subtaskMembers.subtaskId, employeeId: subtaskMembers.employeeId })
+            .from(subtaskMembers)
+            .where(inArray(subtaskMembers.subtaskId, subtaskIds));
+        } catch (e) {
+          subtaskMemberRows = [];
+        }
+      }
+
+      const subtaskMembersMap = new Map<string, string[]>();
+      subtaskMemberRows.forEach((r: any) => {
+        if (!subtaskMembersMap.has(r.subtaskId)) subtaskMembersMap.set(r.subtaskId, []);
+        subtaskMembersMap.get(r.subtaskId)!.push(r.employeeId);
+      });
+
       const result = {
         ...task,
         taskMembers: members.map(m => m.employeeId),
-        subtasks: subs.map(s => ({ id: s.id, title: s.title, isCompleted: s.isCompleted, assignedTo: s.assignedTo ? [s.assignedTo] : [] })),
+        subtasks: subs.map(s => ({ id: s.id, title: s.title, isCompleted: s.isCompleted, assignedTo: subtaskMembersMap.get(s.id) || (s.assignedTo ? [s.assignedTo] : []) })),
       };
 
       res.json(result);
