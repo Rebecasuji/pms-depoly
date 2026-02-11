@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Edit, Trash2, CheckCircle2, Clock, AlertCircle, ListChecks, Tag, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Edit, Trash2, CheckCircle2, Clock, AlertCircle, ListChecks, Tag, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -29,6 +29,13 @@ interface KeyStep {
 }
 
 export default function KeyStepsFullPage() {
+    // Multi-select state for keysteps
+    const [selectedKeystepIds, setSelectedKeystepIds] = useState<string[]>([]);
+    const [quickAddOpen, setQuickAddOpen] = useState(false);
+    const [quickKeystepTitle, setQuickKeystepTitle] = useState("");
+    const [cloneOpen, setCloneOpen] = useState(false);
+    const [cloneKeystep, setCloneKeystep] = useState<KeyStep | null>(null);
+    const [cloneTitle, setCloneTitle] = useState("");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [keySteps, setKeySteps] = useState<KeyStep[]>([]);
@@ -157,29 +164,42 @@ export default function KeyStepsFullPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-4xl font-bold">Key Steps & Milestones</h1>
-            <p className="text-muted-foreground mt-1">Manage project phases and milestones effectively.</p>
+            <h1 className="text-4xl font-bold">Key Steps</h1>
+            <p className="text-muted-foreground mt-1">Manage project phases and key steps effectively.</p>
           </div>
         </div>
 
         {/* Controls */}
+
         <div className="flex flex-col md:flex-row items-center gap-4 mb-8 bg-white p-4 rounded-lg border">
-          <div className="flex-1">
-            <p className="text-sm text-muted-foreground mb-2">Project</p>
-            <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px] overflow-y-auto">
-                {projects.length > 0 ? (
-                  projects.map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
-                  ))
-                ) : (
-                  <div className="p-2 text-xs text-muted-foreground">No projects available</div>
-                )}
-              </SelectContent>
-            </Select>
+          <div className="flex-1 flex items-center gap-2">
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground mb-2">Project</p>
+              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
+                  {projects.length > 0 ? (
+                    projects.map((p: any) => (
+                      <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
+                    ))
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">No projects available</div>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedProjectId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedProjectId("")}
+                className="h-9 px-2 text-xs"
+              >
+                Clear
+              </Button>
+            )}
           </div>
 
           <Button onClick={() => setLocation(`/add-key-step?projectId=${selectedProjectId}`)} className="w-full md:w-auto">
@@ -187,102 +207,137 @@ export default function KeyStepsFullPage() {
           </Button>
         </div>
 
-        {/* Key Steps List */}
-        <div className="space-y-4">
-          {keySteps.length > 0 ? (
-            keySteps.map((step) => (
-              <div key={step.id}>
-                <Card 
-                  className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-primary"
-                  onClick={() => {
-                    // Navigate directly to Tasks for this key step
-                    localStorage.setItem("selectedProjectId", String(step.projectId));
-                    localStorage.setItem("selectedKeyStepId", String(step.id));
-                    setLocation('/tasks');
-                  }}
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3 flex-1">
-                        {getStatusIcon(step.status)}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <CardTitle className="text-lg">{step.title}</CardTitle>
-                            <Badge variant="outline" className="text-xs">Phase {step.phase}</Badge>
-                          </div>
-                          {step.header && <p className="text-sm text-muted-foreground">{step.header}</p>}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 ml-4">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openEditPage(step); }}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteStep(step.id, step.title); }}><Trash2 className="h-4 w-4" /></Button>
-                        <div className="ml-2">{expandedStepId === step.id ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</div>
-                      </div>
-                    </div>
-                  </CardHeader>
+        {/* Bulk Actions & Quick Add */}
+        <div className="flex items-center gap-2 mb-2">
+          <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Quick Add Keystep
+          </Button>
+          {selectedKeystepIds.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => alert(`Bulk action for ${selectedKeystepIds.length} keysteps`)}>
+              Bulk Action ({selectedKeystepIds.length})
+            </Button>
+          )}
+        </div>
 
-                  {expandedStepId === step.id && (
-                    <CardContent className="border-t pt-4">
-                      <div className="space-y-3 mb-4">
-                        {step.description && <div><strong className="text-sm">Description:</strong> <p className="text-sm text-muted-foreground">{step.description}</p></div>}
-                        {step.requirements && <div><strong className="text-sm">Requirements:</strong> <p className="text-sm text-muted-foreground">{step.requirements}</p></div>}
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>Starts: {step.startDate}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>Ends: {step.endDate}</span>
-                        </div>
-                        <div>
-                          <Badge variant="outline" className={`${getStatusColor(step.status)} capitalize text-xs`}>{step.status.replace("-", " ")}</Badge>
-                        </div>
-                      </div>
-
-                      {/* Sub-Milestones */}
-                      <div className="pt-4 border-t">
-                        <div className="mb-3 flex justify-between items-center">
-                          <h4 className="font-semibold text-sm">Sub-Milestones ({(nestedSteps[step.id] || []).length})</h4>
-                        </div>
-
-                        {(nestedSteps[step.id] || []).length > 0 ? (
-                          <div className="space-y-2 mb-3">
-                            {(nestedSteps[step.id] || []).map((nested: KeyStep) => (
-                              <div key={nested.id} className="p-3 bg-background rounded border border-muted/50 text-sm">
-                                <div className="flex items-start justify-between mb-1">
-                                  <div className="flex items-center gap-2">
-                                    <Badge variant="outline" className="text-xs">{nested.title}</Badge>
-                                  </div>
-                                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditPage(nested)}><Edit className="h-3 w-3" /></Button>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteStep(nested.id, nested.title)}><Trash2 className="h-3 w-3" /></Button>
-                                  </div>
-                                </div>
-                                <p className="text-xs text-muted-foreground">{nested.description}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground mb-3">No sub-milestones yet</p>
-                        )}
-
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setLocation(`/add-sub-milestone?parentId=${step.id}&projectId=${selectedProjectId}`);
-                          }}
-                          className="w-full"
-                        >
-                          <Plus className="h-3 w-3 mr-1" /> Add Sub-Milestone
-                        </Button>
-                      </div>
-                    </CardContent>
-                  )}
-                </Card>
+        {/* Quick Add Modal */}
+        {quickAddOpen && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-30">
+            <div className="bg-white rounded-lg p-6 w-96 shadow-lg">
+              <h2 className="text-lg font-bold mb-4">Quick Add Keystep</h2>
+              <input className="w-full border rounded p-2 mb-4" placeholder="Keystep title" value={quickKeystepTitle} onChange={e => setQuickKeystepTitle(e.target.value)} />
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(false)}>Cancel</Button>
+                <Button variant="default" size="sm" onClick={async () => {
+                  if (!quickKeystepTitle.trim()) return;
+                  await apiFetch("/api/key-steps", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      projectId: selectedProjectId,
+                      title: quickKeystepTitle.trim(),
+                      status: "pending",
+                      phase: 1,
+                      header: "",
+                      description: "",
+                      requirements: "",
+                      startDate: new Date().toISOString(),
+                      endDate: new Date().toISOString(),
+                    }),
+                  });
+                  setQuickKeystepTitle("");
+                  setQuickAddOpen(false);
+                  // Refresh keysteps
+                  apiFetch(`/api/projects/${selectedProjectId}/key-steps`).then(r => r.json()).then(data => {
+                    setKeySteps(Array.isArray(data) ? data.filter(ks => !ks.parentKeyStepId) : []);
+                  });
+                }}>Add</Button>
               </div>
-            ))
+            </div>
+          </div>
+        )}
+
+        {/* Clone Modal */}
+        {cloneOpen && cloneKeystep && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-30">
+            <div className="bg-white rounded-lg p-6 w-96 shadow-lg">
+              <h2 className="text-lg font-bold mb-4">Clone Keystep</h2>
+              <input className="w-full border rounded p-2 mb-4" placeholder="New keystep title" value={cloneTitle} onChange={e => setCloneTitle(e.target.value)} />
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setCloneOpen(false)}>Cancel</Button>
+                <Button variant="default" size="sm" onClick={async () => {
+                  await apiFetch(`/api/key-steps/${cloneKeystep.id}/clone`, {
+                    method: "POST",
+                    body: JSON.stringify({ newTitle: cloneTitle || cloneKeystep.title }),
+                  });
+                  setCloneOpen(false);
+                  setCloneTitle("");
+                  setCloneKeystep(null);
+                  // Refresh keysteps
+                  apiFetch(`/api/projects/${selectedProjectId}/key-steps`).then(r => r.json()).then(data => {
+                    setKeySteps(Array.isArray(data) ? data.filter(ks => !ks.parentKeyStepId) : []);
+                  });
+                }}>Clone</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto bg-white rounded-lg border">
+          {keySteps.length > 0 ? (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-2 py-2 w-8">
+                    <input type="checkbox" checked={selectedKeystepIds.length === keySteps.length} onChange={e => {
+                      if (e.target.checked) setSelectedKeystepIds(keySteps.map(k => k.id));
+                      else setSelectedKeystepIds([]);
+                    }} />
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phase</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Header</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Requirements</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Start</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">End</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {keySteps.map((step) => (
+                  <tr key={step.id} className="hover:bg-gray-50 cursor-pointer">
+                    <td className="px-2 py-2 w-8">
+                      <input type="checkbox" checked={selectedKeystepIds.includes(step.id)} onChange={e => {
+                        if (e.target.checked) setSelectedKeystepIds(prev => [...prev, step.id]);
+                        else setSelectedKeystepIds(prev => prev.filter(id => id !== step.id));
+                      }} />
+                    </td>
+                    <td className="px-4 py-2 font-medium flex items-center gap-2" onClick={() => {
+                      localStorage.setItem("selectedProjectId", String(step.projectId));
+                      localStorage.setItem("selectedKeyStepId", String(step.id));
+                      setLocation('/tasks');
+                    }}>
+                      {getStatusIcon(step.status)}
+                      {step.title}
+                    </td>
+                    <td className="px-4 py-2"><Badge variant="outline" className="text-xs">Phase {step.phase}</Badge></td>
+                    <td className="px-4 py-2">{step.header}</td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate" title={step.description}>{step.description}</td>
+                    <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate" title={step.requirements}>{step.requirements}</td>
+                    <td className="px-4 py-2 text-xs">{step.startDate}</td>
+                    <td className="px-4 py-2 text-xs">{step.endDate}</td>
+                    <td className="px-4 py-2"><Badge variant="outline" className={`${getStatusColor(step.status)} capitalize text-xs`}>{step.status.replace("-", " ")}</Badge></td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => { e.stopPropagation(); openEditPage(step); }}><Edit className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={e => { e.stopPropagation(); handleDeleteStep(step.id, step.title); }}><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => { e.stopPropagation(); setCloneOpen(true); setCloneKeystep(step); setCloneTitle(step.title); }}><Copy className="h-4 w-4" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <div className="text-center py-12 border-2 border-dashed rounded-lg text-muted-foreground">No steps found for this project. Click "New Key Step" to add one.</div>
           )}

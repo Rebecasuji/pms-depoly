@@ -32,7 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function Overview() {
   const [expandedProjects, setExpandedProjects] = useState<string[]>(['p1']);
-  const [expandedMilestones, setExpandedMilestones] = useState<string[]>(['m1', 'm2']);
+  const [expandedKeysteps, setExpandedKeysteps] = useState<string[]>(['m1', 'm2']);
 
   const toggleProject = (id: string) => {
     setExpandedProjects(prev => 
@@ -40,8 +40,8 @@ export default function Overview() {
     );
   };
 
-  const toggleMilestone = (id: string) => {
-    setExpandedMilestones(prev => 
+  const toggleKeystep = (id: string) => {
+    setExpandedKeysteps(prev => 
       prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
     );
   };
@@ -51,7 +51,7 @@ export default function Overview() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">Overview</h1>
-          <p className="text-muted-foreground mt-1">Manage projects, milestones, and tasks hierarchy.</p>
+          <p className="text-muted-foreground mt-1">Manage projects, keysteps, and tasks hierarchy.</p>
         </div>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
@@ -112,40 +112,40 @@ export default function Overview() {
 
             {expandedProjects.includes(project.id) && (
               <div className="bg-background">
-                {project.milestones.map((milestone) => (
-                  <div key={milestone.id} className="border-l-4 border-l-primary/10 ml-8 my-2 pl-4">
+                {project.keysteps.map((keystep) => (
+                  <div key={keystep.id} className="border-l-4 border-l-primary/10 ml-8 my-2 pl-4">
                     <div className="flex items-center justify-between py-3 pr-4 group hover:bg-muted/20 rounded-md transition-colors">
                       <div className="flex items-center gap-3">
                          <Button 
                            variant="ghost" 
                            size="icon" 
                            className="h-5 w-5"
-                           onClick={() => toggleMilestone(milestone.id)}
+                           onClick={() => toggleKeystep(keystep.id)}
                          >
-                           {expandedMilestones.includes(milestone.id) ? (
+                           {expandedKeysteps.includes(keystep.id) ? (
                              <ChevronDown className="h-3 w-3" />
                            ) : (
                              <ChevronRight className="h-3 w-3" />
                            )}
                          </Button>
                          <div className="h-2 w-2 rounded-full bg-primary/70" />
-                         <span className="font-medium text-sm">{milestone.title}</span>
+                         <span className="font-medium text-sm">{keystep.title}</span>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
                          <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {milestone.dueDate}
+                            {keystep.dueDate}
                          </span>
-                         <Badge variant="outline" className="text-[10px] h-5">{milestone.status}</Badge>
+                         <Badge variant="outline" className="text-[10px] h-5">{keystep.status}</Badge>
                          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100">
                              <Plus className="h-3 w-3" />
                          </Button>
                       </div>
                     </div>
 
-                    {expandedMilestones.includes(milestone.id) && (
+                    {expandedKeysteps.includes(keystep.id) && (
                       <div className="ml-8 space-y-4 py-2">
-                         {milestone.taskLists.map(taskList => (
+                         {keystep.taskLists.map(taskList => (
                             <div key={taskList.id} className="space-y-2">
                                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider pl-2">{taskList.title}</h4>
                                <div className="space-y-1">

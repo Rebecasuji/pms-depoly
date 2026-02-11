@@ -6,6 +6,7 @@ import { eq, inArray } from "drizzle-orm";
 import { and, sql } from "drizzle-orm";
 
 import { db, pool } from "./db.ts";
+import { DataValidator } from "../shared/dataValidator.ts";
 import {
   users,
   sessions,
@@ -342,27 +343,31 @@ export async function registerRoutes(
         vendors: vendorList = [],
       } = req.body;
 
-      // Validate required fields: title, startDate, endDate
-      if (!title || !title.trim()) {
-        return res.status(400).json({ error: "Project title is required" });
-      }
+      // Validate required fields using validator
+      const validationErrors = DataValidator.validateProject({
+        title,
+        startDate,
+        endDate,
+        progress,
+        department,
+        team,
+        vendors: vendorList,
+      });
 
-      if (!startDate) {
-        return res.status(400).json({ error: "Start date is required" });
-      }
-
-      if (!endDate) {
-        return res.status(400).json({ error: "End date is required" });
+      if (validationErrors.length > 0) {
+        console.warn("❌ Project validation failed:", validationErrors);
+        return res.status(400).json({ 
+          error: "Validation failed",
+          details: validationErrors
+        });
       }
 
       const formatDate = (date: any) => {
-        if (!date) return null;
-        try {
-          const d = new Date(date);
-          return d.toISOString().split('T')[0];
-        } catch {
-          return null;
+        const formatted = DataValidator.formatDate(date);
+        if (!formatted) {
+          throw new Error(`Invalid date format: ${date}`);
         }
+        return formatted;
       };
 
       // Generate projectCode only if provided
@@ -371,6 +376,8 @@ export async function registerRoutes(
       // Format required dates
       const finalStartDate = formatDate(startDate);
       const finalEndDate = formatDate(endDate);
+
+      console.log("✅ Project validation passed, creating project:", { title, finalProjectCode });
 
       // Create the project - minimal payload for speed
       const [created] = await db
@@ -443,10 +450,25 @@ export async function registerRoutes(
         createdByEmployeeId: created.createdByEmployeeId || null,
       };
 
+      console.log("✅ Project created successfully:", created.id);
       res.json(result);
     } catch (err: any) {
       let errorMessage = err instanceof Error ? err.message : String(err);
       let statusCode = 500;
+
+      // Handle specific error cases
+      if (errorMessage.includes("validation")) {
+        statusCode = 400;
+      } else if (errorMessage.includes("unique")) {
+        statusCode = 409;
+        errorMessage = "A project with this code already exists";
+      }
+
+      console.error("❌ Project creation failed:", errorMessage);
+      res.status(statusCode).json({ 
+        error: "Failed to create project",
+        message: errorMessage 
+      });
 
       // Check for duplicate projectCode error (PostgreSQL error code 23505 = unique violation)
       if (err.code === '23505' || err.constraint === 'projects_project_code_key') {
@@ -609,53 +631,54 @@ export async function registerRoutes(
         endDate,
       } = req.body;
 
-      console.log("🔵 Backend received payload:", {
+      console.log("🔵 Backend received keystep payload:", {
         projectId,
         parentKeyStepId,
-        header,
         title,
-        description,
-        requirements,
-        phase,
-        status,
         startDate,
         endDate,
       });
 
-      // Validate required fields
-      if (!projectId || !title || !startDate || !endDate) {
+      // Validate using validator
+      const validationErrors = DataValidator.validateKeystep({
+        projectId,
+        title,
+        startDate,
+        endDate,
+        phase,
+        status,
+      });
+
+      if (validationErrors.length > 0) {
+        console.warn("❌ Keystep validation failed:", validationErrors);
         return res.status(400).json({
-          message: "Missing required fields",
-          required: { projectId, title, startDate, endDate },
+          error: "Validation failed",
+          details: validationErrors,
         });
       }
 
-      // Format dates - ensure they're in YYYY-MM-DD format
-      const formatDate = (date: any) => {
-        if (!date) return undefined;
-        if (typeof date === 'string') {
-          // If already a date string, validate format
-          if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            return date;
-          }
-        }
-        const d = new Date(date);
-        if (isNaN(d.getTime())) {
-          throw new Error(`Invalid date: ${date}`);
-        }
-        return d.toISOString().split('T')[0];
-      };
+      // Format dates with validation
+      const formattedStartDate = DataValidator.formatDate(startDate);
+      const formattedEndDate = DataValidator.formatDate(endDate);
 
-      const formattedStartDate = formatDate(startDate);
-      const formattedEndDate = formatDate(endDate);
+      if (!formattedStartDate || !formattedEndDate) {
+        return res.status(400).json({
+          error: "Date formatting failed",
+          details: [
+            { field: "startDate", message: `Cannot format date: ${startDate}` },
+            { field: "endDate", message: `Cannot format date: ${endDate}` },
+          ],
+        });
+      }
 
-      console.log("🟢 Formatted dates:", {
+      console.log("🟢 Keystep validation passed, formatted dates:", {
         startDate: formattedStartDate,
         endDate: formattedEndDate,
       });
+
       let finalPhase = Number(phase) || 1;
 
-      // Auto-increment phase for sub-milestones
+      // Auto-increment phase for sub-keysteps
       if (parentKeyStepId) {
         const existing = await db
           .select({ maxPhase: sql<number>`MAX(${keySteps.phase})` })
@@ -674,30 +697,33 @@ export async function registerRoutes(
       const valueObj: any = {
         projectId,
         parentKeyStepId: parentKeyStepId || null,
-
         header: header ?? "",
         title: title.trim(),
         description: description ?? "",
         requirements: requirements ?? "",
-
-        phase: finalPhase, // ✅ FIXED
+        phase: finalPhase,
         status: status ? String(status).toLowerCase() : "pending",
         startDate: formattedStartDate,
         endDate: formattedEndDate,
       };
 
-      console.log("🟢 Values to insert:", valueObj);
+      console.log("🟢 Inserting keystep values:", valueObj);
 
       const insertedArr = await db
         .insert(keySteps)
         .values(valueObj)
         .returning();
+
+      console.log("✅ Keystep created successfully:", insertedArr[0].id);
       res.status(201).json(insertedArr[0]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error("❌ Key step create error:", errorMessage);
+      console.error("❌ Keystep creation failed:", errorMessage);
       console.error("❌ Full error:", err);
-      res.status(500).json({ message: "Failed to insert key step", details: errorMessage });
+      res.status(500).json({
+        error: "Failed to create keystep",
+        message: errorMessage,
+      });
     }
   });
 
@@ -835,6 +861,77 @@ export async function registerRoutes(
     }
   });
 
+  // CLONE KEY STEP (duplicate with sub-keysteps)
+  app.post("/api/key-steps/:id/clone", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { newTitle } = req.body;
+
+      // Get original keystep
+      const [originalKeyStep] = await db
+        .select()
+        .from(keySteps)
+        .where(eq(keySteps.id, id));
+
+      if (!originalKeyStep) {
+        return res.status(404).json({ error: "Key step not found" });
+      }
+
+      // Create new keystep with cloned data
+      const newKeyStepId = uuidv4();
+      await db.insert(keySteps).values({
+        id: newKeyStepId,
+        projectId: originalKeyStep.projectId,
+        header: originalKeyStep.header,
+        title: newTitle || `${originalKeyStep.title} (Copy)`,
+        description: originalKeyStep.description,
+        requirements: originalKeyStep.requirements,
+        phase: originalKeyStep.phase,
+        status: originalKeyStep.status,
+        startDate: originalKeyStep.startDate,
+        endDate: originalKeyStep.endDate,
+        parentKeyStepId: originalKeyStep.parentKeyStepId,
+      });
+
+      // Clone child keysteps
+      const originalChildren = await db
+        .select()
+        .from(keySteps)
+        .where(eq(keySteps.parentKeyStepId, id));
+
+      if (originalChildren.length > 0) {
+        for (const originalChild of originalChildren) {
+          const newChildId = uuidv4();
+
+          await db.insert(keySteps).values({
+            id: newChildId,
+            projectId: originalChild.projectId,
+            header: originalChild.header,
+            title: originalChild.title,
+            description: originalChild.description,
+            requirements: originalChild.requirements,
+            phase: originalChild.phase,
+            status: originalChild.status,
+            startDate: originalChild.startDate,
+            endDate: originalChild.endDate,
+            parentKeyStepId: newKeyStepId, // Point to the new parent
+          });
+        }
+      }
+
+      console.log(`✅ Key step cloned: ${id} -> ${newKeyStepId}`);
+      res.json({
+        success: true,
+        newKeyStepId,
+        message: `Key step cloned successfully as "${newTitle || `${originalKeyStep.title} (Copy)`}"`,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Key step clone error:", errorMessage);
+      res.status(500).json({ error: "Clone failed", details: errorMessage });
+    }
+  });
+
   /* ===============================
       TASKS
 ================================ */
@@ -859,16 +956,62 @@ export async function registerRoutes(
       // assignerId is optional; default to the authenticated employee if available
       const finalAssignerId = assignerId || req.employee?.id || null;
 
+      // Validate using validator
+      const validationErrors = DataValidator.validateTask({
+        projectId,
+        taskName,
+        assignerId: finalAssignerId,
+        status,
+        priority,
+        startDate,
+        endDate,
+        taskMembers: memberList,
+        subtasks: incomingSubtasks,
+      });
+
+      if (validationErrors.length > 0) {
+        console.warn("❌ Task validation failed:", validationErrors);
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validationErrors,
+        });
+      }
+
       if (!projectId || !taskName) {
-        return res.status(400).json({ message: "Missing required fields" });
+        return res.status(400).json({ 
+          error: "Validation failed",
+          details: [
+            { field: "projectId", message: "Project ID is required" },
+            { field: "taskName", message: "Task name is required" },
+          ]
+        });
       }
 
       // Format dates if provided
-      const formatDate = (date: any) => {
-        if (!date) return undefined;
-        const d = new Date(date);
-        return d.toISOString().split('T')[0];
-      };
+      let formattedStartDate = null;
+      let formattedEndDate = null;
+
+      if (startDate) {
+        formattedStartDate = DataValidator.formatDate(startDate);
+        if (!formattedStartDate) {
+          return res.status(400).json({
+            error: "Invalid start date format",
+            details: [{ field: "startDate", message: `Cannot parse date: ${startDate}` }],
+          });
+        }
+      }
+
+      if (endDate) {
+        formattedEndDate = DataValidator.formatDate(endDate);
+        if (!formattedEndDate) {
+          return res.status(400).json({
+            error: "Invalid end date format",
+            details: [{ field: "endDate", message: `Cannot parse date: ${endDate}` }],
+          });
+        }
+      }
+
+      console.log("✅ Task validation passed, creating task:", { projectId, taskName });
 
       // Insert task
       const [task] = await db
@@ -880,11 +1023,13 @@ export async function registerRoutes(
           description: description || null,
           status: status || "pending",
           priority: priority || "medium",
-          startDate: startDate ? formatDate(startDate) : null,
-          endDate: endDate ? formatDate(endDate) : null,
+          startDate: formattedStartDate,
+          endDate: formattedEndDate,
           assignerId: finalAssignerId,
         } as any)
         .returning();
+
+      console.log("✅ Task created:", task.id);
 
       // Insert members
       if (Array.isArray(memberList) && memberList.length > 0) {
@@ -894,20 +1039,22 @@ export async function registerRoutes(
             employeeId: empId,
           })),
         );
+        console.log("✅ Task members inserted:", memberList.length);
       }
 
-      // Insert subtasks (if provided). The DB stores a single `assigned_to` per subtask;
-      // if the incoming UI provides multiple assignees, store the first one.
+      // Insert subtasks (if provided)
       if (Array.isArray(incomingSubtasks) && incomingSubtasks.length > 0) {
         const rows = incomingSubtasks.map((st: any) => ({
           taskId: task.id,
           title: st.title || null,
           description: st.description || "",
           isCompleted: !!st.isCompleted,
-          // keep single-column for backward compatibility; we also persist members into subtask_members
-          assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
+          assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 
+            ? st.assignedTo[0] 
+            : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
         }));
-        console.log("Inserting subtasks:", rows);
+        
+        console.log("Inserting subtasks:", rows.length);
         const inserted = await db.insert(subtasks).values(rows).returning();
 
         // If there are subtask members provided as arrays, insert into subtask_members mapping
@@ -916,23 +1063,32 @@ export async function registerRoutes(
           inserted.forEach((ins: any, idx: number) => {
             const incoming = incomingSubtasks[idx];
             if (Array.isArray(incoming.assignedTo) && incoming.assignedTo.length > 0) {
-              incoming.assignedTo.forEach((empId: string) => memberInserts.push({ subtaskId: ins.id, employeeId: empId }));
+              incoming.assignedTo.forEach((empId: string) => 
+                memberInserts.push({ subtaskId: ins.id, employeeId: empId })
+              );
             }
           });
           if (memberInserts.length > 0) {
             await db.insert(subtaskMembers).values(memberInserts);
+            console.log("✅ Subtask members inserted:", memberInserts.length);
           }
         } catch (err) {
           console.warn("Failed to insert subtask_members mapping:", err);
         }
+        
+        console.log("✅ Subtasks inserted:", inserted.length);
       }
 
+      console.log("✅ Task created successfully with all related data");
       res.json(task);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error("Task create error:", errorMessage);
-      console.error("Full error:", err);
-      res.status(500).json({ message: "Task creation failed", details: errorMessage });
+      console.error("❌ Task creation failed:", errorMessage);
+      console.error("❌ Full error:", err);
+      res.status(500).json({ 
+        error: "Task creation failed",
+        message: errorMessage 
+      });
     }
   });
 

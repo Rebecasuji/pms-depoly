@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { useAuth } from "@/components/Layout";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -60,16 +61,56 @@ interface Task {
 
 /* ================= COMPONENT ================= */
 
+
 export default function Tasks() {
+  // Multi-select state for tasks
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [employees, setEmployees] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [milestones, setMilestones] = useState<any[]>([]);
+  const [keySteps, setKeySteps] = useState<any[]>([]);
   const [selectedKeyStepId, setSelectedKeyStepId] = useState<string>("");
-
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Bulk assign state
+  const [bulkAssignPerson, setBulkAssignPerson] = useState("");
+  const [bulkAssignDepartment, setBulkAssignDepartment] = useState("");
+  const [departments, setDepartments] = useState<string[]>(["HR", "Operations", "Software Developers", "Finance", "Purchase", "Presales", "IT Support"]);
+
+  // Handler for bulk assignment
+  const handleBulkAssign = async () => {
+    // TODO: Implement API call to assign selected tasks to person or department
+    // Example: await apiFetch('/api/tasks/bulk-assign', { method: 'POST', body: JSON.stringify({ taskIds: selectedTaskIds, personId: bulkAssignPerson, department: bulkAssignDepartment }) })
+    alert(`Assigning ${selectedTaskIds.length} tasks to ${bulkAssignPerson || bulkAssignDepartment}`);
+    // After API: refresh tasks, clear selection, reset dropdowns
+    setBulkAssignPerson("");
+    setBulkAssignDepartment("");
+    setSelectedTaskIds([]);
+  };
+
+  // filteredTasks: Apply search and optional keystep filter
+  // Show all tasks when no project is selected
+  const filteredTasks = tasks.filter(t => {
+    const matchesSearch = (t.taskName || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesKey = selectedKeyStepId ? String(t.keyStepId) === String(selectedKeyStepId) : true;
+    return matchesSearch && matchesKey;
+  });
+
+  // Select all tasks in current filtered view
+  const allSelected = filteredTasks.length > 0 && filteredTasks.every(t => selectedTaskIds.includes(t.id));
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedTaskIds([]);
+    } else {
+      setSelectedTaskIds(filteredTasks.map(t => t.id));
+    }
+  };
+  const toggleSelectTask = (id: string) => {
+    setSelectedTaskIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
   const [projectId, setProjectId] = useState("");
 
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -106,13 +147,7 @@ export default function Tasks() {
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
         setProjects(arr);
-        const saved = localStorage.getItem("selectedProjectId");
-        if (saved) {
-          setProjectId(String(saved));
-          localStorage.removeItem("selectedProjectId");
-        } else if (arr.length > 0 && !projectId) {
-          setProjectId(String(arr[0].id));
-        }
+        // Don't auto-select previous project - start with empty selection
       })
       .catch(() => setProjects([]));
     const savedKey = localStorage.getItem("selectedKeyStepId");
@@ -125,29 +160,30 @@ export default function Tasks() {
   /* ================= LOAD PROJECT-SPECIFIC DATA ================= */
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId) {
+      // Load all user's tasks when no project is selected
+      apiFetch("/api/tasks/bulk")
+        .then(r => r.json())
+        .then(data => setTasks(Array.isArray(data) ? data : []))
+        .catch(() => setTasks([]));
+      
+      // Clear keysteps and reset keystep filter
+      setKeySteps([]);
+      setSelectedKeyStepId("");
+      return;
+    }
 
-    // Load Tasks
+    // Load project-specific tasks
     apiFetch(`/api/tasks/${projectId}`)
       .then(r => r.json())
       .then(data => setTasks(Array.isArray(data) ? data : []))
       .catch(() => setTasks([]));
 
-    const loadMilestones = async () => {
-      if (!projectId) return;
-      try {
-        const data = await apiFetch(`/api/projects/${projectId}/key-steps`).then(r => r.json());
-        setMilestones(Array.isArray(data) ? data : []);
-      } catch {
-        setMilestones([]);
-      }
-    };
-
-    // Load Milestones (Key Steps)
+    // Load Key Steps for project
     apiFetch(`/api/projects/${projectId}/key-steps`)
       .then(r => r.json())
-      .then(data => setMilestones(Array.isArray(data) ? data : []))
-      .catch(() => setMilestones([]));
+      .then(data => setKeySteps(Array.isArray(data) ? data : []))
+      .catch(() => setKeySteps([]));
   }, [projectId]);
 
   /* ================= HELPERS ================= */
@@ -300,12 +336,7 @@ export default function Tasks() {
 
   /* ================= SUBTASK HANDLERS ================= */
 
-  // Apply search and optional keystep filter
-  const filteredTasks = tasks.filter(t => {
-    const matchesSearch = (t.taskName || "").toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesKey = selectedKeyStepId ? String(t.keyStepId) === String(selectedKeyStepId) : true;
-    return matchesSearch && matchesKey;
-  });
+
 
   return (
     <div className="space-y-6 p-6 bg-slate-50 min-h-screen">
@@ -313,7 +344,9 @@ export default function Tasks() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Tasks</h1>
-          <p className="text-sm text-muted-foreground">Manage project tasks</p>
+          <p className="text-sm text-muted-foreground">
+            {projectId ? "Manage project tasks" : "View all tasks assigned to you"}
+          </p>
         </div>
 
         <div className="flex gap-4">
@@ -334,6 +367,42 @@ export default function Tasks() {
               </SelectContent>
             </Select>
           </div>
+
+          {projectId && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold mr-3">Key Step</span>
+              <Select
+                value={selectedKeyStepId}
+                onValueChange={val => {
+                  setSelectedKeyStepId(val);
+                  // Only filter tasks, do not navigate
+                }}
+              >
+                <SelectTrigger className="w-56 bg-white">
+                  <SelectValue placeholder="Filter by key step..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
+                  {keySteps.length > 0 ? (
+                    keySteps.map(ks => (
+                      <SelectItem key={ks.id} value={String(ks.id)}>{ks.title}</SelectItem>
+                    ))
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">No key steps available</div>
+                  )}
+                </SelectContent>
+              </Select>
+              {selectedKeyStepId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedKeyStepId("")}
+                  className="h-9 px-2 text-xs"
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center">
             <span className="text-sm font-semibold mr-3">Tasks</span>
@@ -362,22 +431,73 @@ export default function Tasks() {
         </div>
       </div>
 
+      {/* BULK ASSIGN UI */}
+      {selectedTaskIds.length > 0 && (
+        <div className="flex items-center gap-4 mb-4 p-3 bg-amber-50 border border-amber-200 rounded">
+          <span className="font-semibold text-sm">Bulk Assign:</span>
+          {/* Assign to Person */}
+          <Select
+            value={bulkAssignPerson}
+            onValueChange={setBulkAssignPerson}
+          >
+            <SelectTrigger className="w-48 bg-white">
+              <SelectValue placeholder="Select Person" />
+            </SelectTrigger>
+            <SelectContent className="max-h-[300px] overflow-y-auto">
+              {employees.map(e => (
+                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Assign to Department */}
+          <Select
+            value={bulkAssignDepartment}
+            onValueChange={setBulkAssignDepartment}
+          >
+            <SelectTrigger className="w-48 bg-white">
+              <SelectValue placeholder="Select Department" />
+            </SelectTrigger>
+            <SelectContent className="max-h-[300px] overflow-y-auto">
+              {departments.map(d => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={handleBulkAssign}
+            disabled={!bulkAssignPerson && !bulkAssignDepartment}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            Assign Selected Tasks
+          </Button>
+        </div>
+      )}
+
       {/* MAIN TABLE */}
       <div className="bg-white border rounded-xl overflow-x-auto">
         <table className="w-full border-collapse table-fixed">
           <colgroup>
-            <col style={{ width: "4%" }} />
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "8%" }} />
+            <col style={{ width: '3%' }} />
+            <col style={{ width: '4%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '8%' }} />
+            <col style={{ width: '8%' }} />
           </colgroup>
           <thead>
             <tr className="bg-slate-100 border-b">
+              <th className="px-2 py-3 text-center">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all tasks"
+                />
+              </th>
               <th className="px-2 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r"></th>
               <th className="px-3 py-3 text-left text-xs font-bold uppercase text-slate-600 border-r">Task Name</th>
               <th className="px-3 py-3 text-left text-xs font-bold uppercase text-slate-600 border-r">Assignees</th>
@@ -399,6 +519,14 @@ export default function Tasks() {
                 <Fragment key={task.id}>
                   {/* MAIN TASK ROW */}
                   <tr className="border-b hover:bg-slate-50 transition-colors">
+                    <td className="px-2 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.includes(task.id)}
+                        onChange={() => toggleSelectTask(task.id)}
+                        aria-label={`Select task ${task.taskName}`}
+                      />
+                    </td>
                     <td className="px-2 py-3 text-center border-r">
                       <button
                         onClick={() => toggleExpand(task.id)}
@@ -430,22 +558,15 @@ export default function Tasks() {
                     <td className="px-3 py-3 align-top border-r">
                       <div className="flex gap-1 flex-wrap items-center">
                         {(task.taskMembers || []).length > 0 ? (
-                          <>
-                            {(task.taskMembers || []).slice(0, 3).map(id => (
-                              <Badge
-                                key={id}
-                                variant="secondary"
-                                className="text-xs whitespace-nowrap"
-                              >
-                                {employees.find(e => e.id === id)?.name || id}
-                              </Badge>
-                            ))}
-                            {(task.taskMembers || []).length > 3 && (
-                              <Badge variant="outline" className="text-xs whitespace-nowrap">
-                                +{(task.taskMembers || []).length - 3}
-                              </Badge>
-                            )}
-                          </>
+                          (task.taskMembers || []).map(id => (
+                            <Badge
+                              key={id}
+                              variant="secondary"
+                              className="text-xs whitespace-nowrap"
+                            >
+                              {employees.find(e => e.id === id)?.name || id}
+                            </Badge>
+                          ))
                         ) : (
                           <span className="text-xs text-slate-400">Unassigned</span>
                         )}

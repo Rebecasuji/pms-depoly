@@ -79,27 +79,44 @@ const AuthContext = createContext<{
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [, setLocation] = useLocation();
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    // Force login screen on initial load: clear any existing token and
-    // navigate to /login so users always see the login page first.
-    // This prevents showing the dashboard automatically on open.
+    // Check if user is already logged in
     const token = localStorage.getItem("knockturn_token");
-    if (token) localStorage.removeItem("knockturn_token");
-    setLocation("/login");
+    if (!token) {
+      console.log("[AUTH] No token found, redirecting to login");
+      setLocation("/login");
+    }
+    setIsInitialized(true);
   }, []);
 
   const login = async (employeeCode?: string, password?: string) => {
-    const res = await apiFetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeCode, password }),
-    });
-    if (!res.ok) throw new Error("Login failed");
-    const data = await res.json();
-    localStorage.setItem("knockturn_token", data.token);
-    setUser(data.user);
-    setLocation("/");
+    try {
+      console.log("[LOGIN] Sending credentials for:", employeeCode);
+      const res = await apiFetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeCode, password }),
+      });
+      
+      console.log("[LOGIN] Response status:", res.status, res.ok);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+        console.error("[LOGIN] Login failed:", errorData);
+        throw new Error(errorData.error || `Login failed (${res.status})`);
+      }
+      
+      const data = await res.json();
+      console.log("[LOGIN] Success! User:", data.user);
+      localStorage.setItem("knockturn_token", data.token);
+      setUser(data.user);
+      setLocation("/");
+    } catch (err) {
+      console.error("[LOGIN] Error during login:", err);
+      throw err;
+    }
   };
 
   const logout = async () => {

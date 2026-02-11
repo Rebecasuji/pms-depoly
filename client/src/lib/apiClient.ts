@@ -44,10 +44,13 @@ export const apiFetch = (url: string, opts?: RequestInit) => {
   const method = (opts?.method || "GET").toUpperCase();
   const isGetRequest = method === "GET";
   
+  console.log(`[API] ${method} ${url}`, { hasToken: !!token });
+  
   // Check cache for GET requests
   if (isGetRequest && cache.has(url)) {
     const entry = cache.get(url)!;
     if (Date.now() - entry.timestamp < entry.ttl) {
+      console.log(`[API] Cache hit for ${url}`);
       return Promise.resolve(new Response(JSON.stringify(entry.data), { 
         status: 200,
         headers: { "Content-Type": "application/json" }
@@ -59,6 +62,7 @@ export const apiFetch = (url: string, opts?: RequestInit) => {
 
   // Deduplicate in-flight requests
   if (isGetRequest && inFlightRequests.has(url)) {
+    console.log(`[API] Deduplicating in-flight request for ${url}`);
     // Return a cloned Response for each duplicate consumer so callers can
     // independently call `response.json()` without consuming the same body stream.
     return inFlightRequests.get(url)!.then((r) => r.clone());
@@ -71,6 +75,7 @@ export const apiFetch = (url: string, opts?: RequestInit) => {
 
   const fetchPromise = fetch(url, { ...opts, headers })
     .then(async (response) => {
+      console.log(`[API] Response for ${method} ${url}:`, response.status, response.statusText);
       // Cache successful GET responses
       if (isGetRequest && response.ok && response.status === 200) {
         const data = await response.clone().json().catch(() => null);
@@ -83,6 +88,10 @@ export const apiFetch = (url: string, opts?: RequestInit) => {
         }
       }
       return response;
+    })
+    .catch((err) => {
+      console.error(`[API] Network error for ${method} ${url}:`, err);
+      throw err;
     })
     .finally(() => {
       // Remove from in-flight tracking

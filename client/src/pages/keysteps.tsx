@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
-import { Plus, Edit, Trash2, CheckCircle2, Clock, AlertCircle, ListChecks, Tag } from "lucide-react";
+import { useState, useEffect, Fragment } from "react";
+import { Plus, Edit, Trash2, CheckCircle2, Clock, AlertCircle, ListChecks, Tag, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -37,6 +36,9 @@ interface KeyStep {
 const API_BASE = "";
 
 export default function KeySteps() {
+      const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+    // Track which keystep is showing the sub-keystep form
+    const [showSubFormFor, setShowSubFormFor] = useState<string | null>(null);
   const [keySteps, setKeySteps] = useState<KeyStep[]>([]);
   const [childKeySteps, setChildKeySteps] = useState<{ [parentId: string]: KeyStep[] }>({});
   const [projects, setProjects] = useState<any[]>([]);
@@ -63,6 +65,12 @@ export default function KeySteps() {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [stepToDelete, setStepToDelete] = useState<KeyStep | null>(null);
 
+  // New state for table interactions
+  const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [cloneStepData, setCloneStepData] = useState<KeyStep | null>(null);
+  const [cloneStepNewTitle, setCloneStepNewTitle] = useState("");
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+
 
   // Load projects
   useEffect(() => {
@@ -75,9 +83,10 @@ export default function KeySteps() {
       })
       .then((data) => {
         setProjects(data);
-        const idToUse = savedProjectId || (data.length > 0 ? String(data[0].id) : "");
-        setSelectedProjectId(idToUse);
-        setNewStep((prev) => ({ ...prev, projectId: idToUse }));
+        if (savedProjectId) {
+          setSelectedProjectId(savedProjectId);
+          setNewStep((prev) => ({ ...prev, projectId: savedProjectId }));
+        }
       })
       .catch((err) => console.error("Projects load error:", err));
   }, []);
@@ -248,6 +257,45 @@ export default function KeySteps() {
     } catch (error) {
       console.error("Error deleting step:", error);
     }
+  };
+
+  // Clone step
+  const handleCloneStep = async () => {
+    if (!cloneStepData) return;
+
+    try {
+      const response = await apiFetch(`/api/key-steps/${cloneStepData.id}/clone`, {
+        method: "POST",
+        body: JSON.stringify({ newTitle: cloneStepNewTitle || undefined }),
+      });
+
+      if (!response.ok) throw new Error("Clone failed");
+
+      // Refresh keysteps
+      const updated = await apiFetch(`/api/projects/${selectedProjectId}/key-steps`).then(r => r.json());
+      setKeySteps(Array.isArray(updated) ? updated : []);
+
+      // Refetch children for all parent keysteps
+      updated.forEach((step: KeyStep) => {
+        if (!step.parentKeyStepId) {
+          fetchChildrenForStep(step.id);
+        }
+      });
+
+      setCloneStepNewTitle("");
+      setCloneDialogOpen(false);
+      setCloneStepData(null);
+      alert("Key step cloned successfully!");
+    } catch (err) {
+      alert("Failed to clone key step");
+    }
+  };
+
+  // Toggle expanded row
+  const toggleExpand = (id: string) => {
+    setExpandedRows(prev => 
+      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
+    );
   };
 
   // Edit step
@@ -582,191 +630,307 @@ export default function KeySteps() {
         </div>
       </div>
 
-      {/* Key Steps List */}
-      <div className="grid gap-4">
-        {keySteps.length > 0 ? (
-          keySteps
-            .filter((step) => !step.parentKeyStepId) // Only show parent keysteps
-            .sort((a, b) => a.phase - b.phase)
-            .map((step) => (
-              <div key={step.id}>
-                <Card
-                  className="group hover:border-primary/50 transition-all duration-200 shadow-sm overflow-hidden cursor-pointer"
-                  onClick={() => {
-                    localStorage.setItem("selectedProjectId", String(selectedProjectId));
-                    localStorage.setItem("selectedKeyStepId", String(step.id));
-                    window.location.href = '/tasks';
-                  }}
-                >
-                  {step.header && (
-                    <div className="bg-muted/30 px-6 py-2 border-b flex items-center gap-2">
-                      <Tag className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        {step.header}
-                      </span>
-                    </div>
-                  )}
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-background border shadow-sm group-hover:scale-110 transition-transform">
-                          {getStatusIcon(step.status)}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary" className="font-mono">
-                              Phase {step.phase}
-                            </Badge>
-                            <CardTitle className="text-lg">{step.title}</CardTitle>
-                          </div>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline" className={`${getStatusColor(step.status)} capitalize`}>
-                              {step.status.replace("-", " ")}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={(e) => { e.stopPropagation(); handleEditStep(step); }}
+      {/* Key Steps Table */}
+      <div className="bg-white border rounded-xl overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-100 border-b">
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r w-10"></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 border-r">Key Step Name</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r w-32">Status</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r w-28">Start Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r w-28">End Date</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 border-r w-24">Sub-Steps</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase text-slate-600 w-32">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {keySteps.filter(s => !s.parentKeyStepId).length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-12 text-center text-slate-500">
+                  No key steps found for this project. Click "New Key Step" to add one.
+                </td>
+              </tr>
+            ) : (
+              keySteps
+                .filter((step) => !step.parentKeyStepId)
+                .sort((a, b) => a.phase - b.phase)
+                .map((step) => (
+                  <Fragment key={step.id}>
+                                        {inlineEditId === step.id && (
+                                          <tr className="border-b bg-yellow-50">
+                                            <td className="px-3 py-2 text-center border-r"></td>
+                                            <td className="px-4 py-2 border-r" colSpan={6}>
+                                              <form
+                                                className="flex flex-wrap gap-2 items-center"
+                                                onSubmit={async (e) => {
+                                                  e.preventDefault();
+                                                  const form = e.target as HTMLFormElement;
+                                                  const title = (form.elements.namedItem('editTitle') as HTMLInputElement).value;
+                                                  const phase = (form.elements.namedItem('editPhase') as HTMLInputElement).value;
+                                                  const startDate = (form.elements.namedItem('editStartDate') as HTMLInputElement).value;
+                                                  const endDate = (form.elements.namedItem('editEndDate') as HTMLInputElement).value;
+                                                  await handleUpdateStep({
+                                                    ...step,
+                                                    title,
+                                                    phase: Number(phase),
+                                                    startDate,
+                                                    endDate,
+                                                  });
+                                                  setInlineEditId(null);
+                                                }}
+                                              >
+                                                <input name="editTitle" defaultValue={step.title} placeholder="Title" className="border rounded px-2 py-1 text-xs" />
+                                                <input name="editPhase" type="number" min="1" defaultValue={step.phase} placeholder="Phase" className="border rounded px-2 py-1 w-16 text-xs" />
+                                                <input name="editStartDate" type="date" defaultValue={step.startDate} className="border rounded px-2 py-1 text-xs" />
+                                                <input name="editEndDate" type="date" defaultValue={step.endDate} className="border rounded px-2 py-1 text-xs" />
+                                                <button type="submit" className="bg-blue-600 text-white px-2 py-1 rounded text-xs">Save</button>
+                                                <button type="button" className="ml-2 text-xs text-slate-500 underline" onClick={() => setInlineEditId(null)}>Cancel</button>
+                                              </form>
+                                            </td>
+                                          </tr>
+                                        )}
+                    {/* MAIN KEY STEP ROW */}
+                    <tr className="border-b hover:bg-slate-50 transition-colors">
+                      <td className="px-3 py-3 text-center border-r">
+                        <button
+                          onClick={() => toggleExpand(step.id)}
+                          className="text-slate-500 hover:text-slate-700"
                         >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                          onClick={(e) => { e.stopPropagation(); setStepToDelete(step); setOpenDeleteDialog(true); }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pl-20 space-y-4">
-                    <p className="text-muted-foreground leading-relaxed">{step.description}</p>
-                    {step.requirements && (
-                      <div className="bg-primary/5 rounded-lg p-3 border border-primary/10">
-                        <div className="flex items-center gap-2 mb-2">
-                          <ListChecks className="h-4 w-4 text-primary" />
-                          <span className="text-sm font-semibold">Requirements</span>
+                          {expandedRows.includes(step.id) ? (
+                            <ChevronDown size={18} />
+                          ) : (
+                            <ChevronRight size={18} />
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 border-r">
+                        <div className="text-sm font-medium text-slate-900">
+                          <span className="text-xs text-slate-500 font-mono">[Phase {step.phase}]</span> {step.title}
                         </div>
-                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{step.requirements}</p>
-                      </div>
+                        {step.description && (
+                          <div className="text-xs text-slate-500 mt-1 truncate">
+                            {step.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center border-r">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs whitespace-nowrap ${getStatusColor(step.status)}`}
+                        >
+                          {step.status.replace("-", " ")}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
+                        {step.startDate ? new Date(step.startDate).toLocaleDateString() : "N/A"}
+                      </td>
+                      <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
+                        {step.endDate ? new Date(step.endDate).toLocaleDateString() : "N/A"}
+                      </td>
+                      <td className="px-3 py-3 text-center border-r">
+                        <Badge variant="secondary" className="text-xs">
+                          {childKeySteps[step.id]?.length || 0}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            onClick={() => setInlineEditId(step.id)}
+                            className="text-blue-600 hover:text-blue-700"
+                            title="Edit"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCloneStepData(step);
+                              setCloneStepNewTitle(`${step.title} (Copy)`);
+                              setCloneDialogOpen(true);
+                            }}
+                            className="text-green-600 hover:text-green-700"
+                            title="Clone"
+                          >
+                            <Copy size={16} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setStepToDelete(step);
+                              setOpenDeleteDialog(true);
+                            }}
+                            className="text-red-600 hover:text-red-700"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => setShowSubFormFor(showSubFormFor === step.id ? null : step.id)}
+                            className={`text-purple-700 hover:text-purple-900 border border-purple-200 rounded px-2 py-1 text-xs ml-2 ${showSubFormFor === step.id ? 'bg-purple-100' : ''}`}
+                            title="Add Sub-Phase"
+                          >
+                            + Add Sub-Phase
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* EXPANDED SUB-KEYSTEPS ROWS */}
+                    {expandedRows.includes(step.id) && (
+                      <>
+                        {childKeySteps[step.id] && childKeySteps[step.id].length > 0 &&
+                          childKeySteps[step.id]
+                            .sort((a, b) => a.phase - b.phase)
+                            .map((child) => (
+                              <tr key={child.id} className="border-b bg-slate-50/50 hover:bg-slate-100 transition-colors">
+                                <td className="px-3 py-2 text-center border-r"></td>
+                                <td className="px-4 py-2 border-r">
+                                  <div className="text-sm font-medium text-slate-900">
+                                    <span className="text-xs text-slate-500 font-mono">[Phase {child.phase}]</span> ↳ {child.title}
+                                  </div>
+                                  {child.description && (
+                                    <div className="text-xs text-slate-500 mt-1 truncate">
+                                      {child.description}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center border-r">
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs whitespace-nowrap ${getStatusColor(child.status)}`}
+                                  >
+                                    {child.status.replace("-", " ")}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-2 text-center text-sm text-slate-600 border-r">
+                                  {child.startDate ? new Date(child.startDate).toLocaleDateString() : "N/A"}
+                                </td>
+                                <td className="px-3 py-2 text-center text-sm text-slate-600 border-r">
+                                  {child.endDate ? new Date(child.endDate).toLocaleDateString() : "N/A"}
+                                </td>
+                                <td className="px-3 py-2 text-center border-r">
+                                  <Badge variant="outline" className="text-xs">—</Badge>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <div className="flex gap-2 justify-center">
+                                    <button
+                                      onClick={() => handleEditStep(child)}
+                                      className="text-blue-600 hover:text-blue-700"
+                                      title="Edit"
+                                    >
+                                      <Edit size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setCloneStepData(child);
+                                        setCloneStepNewTitle(`${child.title} (Copy)`);
+                                        setCloneDialogOpen(true);
+                                      }}
+                                      className="text-green-600 hover:text-green-700"
+                                      title="Clone"
+                                    >
+                                      <Copy size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setStepToDelete(child);
+                                        setOpenDeleteDialog(true);
+                                      }}
+                                      className="text-red-600 hover:text-red-700"
+                                      title="Delete"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                        }
+                        {/* Inline sub-keystep creation row, only if showSubFormFor === step.id */}
+                        {showSubFormFor === step.id && (
+                          <tr className="border-b bg-purple-50/75">
+                            <td className="px-3 py-2 text-center border-r"></td>
+                            <td className="px-4 py-2 border-r" colSpan={6}>
+                              <form
+                                className="flex flex-wrap gap-2 items-center"
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const form = e.target as HTMLFormElement;
+                                  const title = (form.elements.namedItem('subTitle') as HTMLInputElement).value;
+                                  const phase = (form.elements.namedItem('subPhase') as HTMLInputElement).value;
+                                  const startDate = (form.elements.namedItem('subStartDate') as HTMLInputElement).value;
+                                  const endDate = (form.elements.namedItem('subEndDate') as HTMLInputElement).value;
+                                  if (!title || !phase || !startDate || !endDate) {
+                                    alert('Fill all fields');
+                                    return;
+                                  }
+                                  await handleAddStep({
+                                    ...newStep,
+                                    title,
+                                    phase: Number(phase),
+                                    startDate,
+                                    endDate,
+                                    parentKeyStepId: step.id,
+                                  });
+                                  form.reset();
+                                  fetchChildrenForStep(step.id);
+                                  setShowSubFormFor(null);
+                                }}
+                              >
+                                <input name="subTitle" placeholder="Sub-phase title" className="border rounded px-2 py-1 text-xs" />
+                                <input name="subPhase" type="number" min="1" placeholder="Phase" className="border rounded px-2 py-1 w-16 text-xs" />
+                                <input name="subStartDate" type="date" className="border rounded px-2 py-1 text-xs" />
+                                <input name="subEndDate" type="date" className="border rounded px-2 py-1 text-xs" />
+                                <button type="submit" className="bg-purple-600 text-white px-2 py-1 rounded text-xs">Add Sub-Phase</button>
+                                <button type="button" className="ml-2 text-xs text-slate-500 underline" onClick={() => setShowSubFormFor(null)}>Cancel</button>
+                              </form>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     )}
-                    <div className="pt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setParentKeyStepForSubmilestone(step);
-                          setNewStep({
-                            header: step.header || "",
-                            title: "",
-                            description: step.description || "",
-                            requirements: step.requirements || "",
-                            phase: step.phase,
-                            status: "pending",
-                            startDate: step.startDate,
-                            endDate: step.endDate,
-                            projectId: selectedProjectId,
-                            parentKeyStepId: step.id,
-                          });
-                          setOpenDialog(true);
-                        }}
-                        className="w-full"
-                      >
-                        <Plus className="h-3 w-3 mr-1" /> Add Sub-Milestone
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                  </Fragment>
+                ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-                {/* Submilestones */}
-                {childKeySteps[step.id] && childKeySteps[step.id].length > 0 && (
-                  <div className="ml-6 mt-3 space-y-3 border-l-2 border-primary/20 pl-4">
-                    {childKeySteps[step.id]
-                      .sort((a, b) => a.phase - b.phase)
-                      .map((child) => (
-                        <Card
-                          key={child.id}
-                          className="group hover:border-primary/50 transition-all duration-200 shadow-sm bg-primary/2"
-                        >
-                          <CardHeader className="pb-3 py-3">
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-center gap-3 flex-1">
-                                <div className="flex items-center justify-center h-10 w-10 rounded-full bg-background border shadow-sm group-hover:scale-110 transition-transform">
-                                  {getStatusIcon(child.status)}
-                                </div>
-                                <div className="flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Badge variant="outline" className="font-mono text-xs">
-                                      Sub
-                                    </Badge>
-                                    <CardTitle className="text-base">{child.title}</CardTitle>
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Badge variant="outline" className={`${getStatusColor(child.status)} capitalize text-xs`}>
-                                      {child.status.replace("-", " ")}
-                                    </Badge>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => handleEditStep(child)}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                  onClick={() => {
-                                    setStepToDelete(child);
-                                    setOpenDeleteDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="pl-12 space-y-2">
-                            {child.description && (
-                              <p className="text-sm text-muted-foreground leading-relaxed">{child.description}</p>
-                            )}
-                            <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground pt-1">
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                <span>{child.startDate}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <CheckCircle2 className="h-3 w-3" />
-                                <span>{child.endDate}</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                  </div>
-                )}
-              </div>
-            ))
-        ) : (
-          <div className="text-center py-12 border-2 border-dashed rounded-lg text-muted-foreground">
-            No steps found for this project. Click "New Key Step" to add one.
+      {/* CLONE DIALOG */}
+      <Dialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Clone Key Step</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="cloneTitle">New Key Step Title</Label>
+              <Input
+                id="cloneTitle"
+                value={cloneStepNewTitle}
+                onChange={(e) => setCloneStepNewTitle(e.target.value)}
+                placeholder="Enter new title..."
+              />
+            </div>
           </div>
-        )}
 
-        {/* DELETE CONFIRMATION DIALOG */}
+          <DialogFooter className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCloneDialogOpen(false);
+                setCloneStepData(null);
+                setCloneStepNewTitle("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCloneStep}>Clone</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* DELETE CONFIRMATION DIALOG */}
         <Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -815,7 +979,6 @@ export default function KeySteps() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
     </div>
   );
 }

@@ -84,7 +84,6 @@ export default function Projects() {
     title: "",
     projectCode: "",
     department: [] as string[],
-    location: "",
     clientName: "",
     description: "",
     startDate: "",
@@ -107,7 +106,11 @@ export default function Projects() {
       const res = await apiFetch("/api/departments");
       if (!res.ok) throw new Error("Failed to fetch departments");
       const data = await res.json();
-      setDepartments(Array.isArray(data) ? data : []);
+      let deptList = Array.isArray(data) ? data : [];
+      if (!deptList.includes("presales")) {
+        deptList.push("presales");
+      }
+      setDepartments(deptList);
     } catch (err) {
       console.error("Failed to fetch departments", err);
       setDepartments([]);
@@ -206,10 +209,13 @@ export default function Projects() {
 
     // Normalize department filter value to match backend normalization
     const filterDeptNorm = departmentFilter === "all" ? "" : departmentFilter.toLowerCase();
-    const projectDepts = (p.department || []).map((d: string) => d.toLowerCase());
+    // Support multiple departments per project
+    const projectDepts = Array.isArray(p.department)
+      ? p.department.map((d: string) => d.toLowerCase())
+      : [String(p.department).toLowerCase()];
     const matchesDepartment =
       departmentFilter === "all" ||
-      projectDepts.includes(filterDeptNorm);
+      projectDepts.some(dept => dept === filterDeptNorm);
 
     return matchesSearch && matchesStatus && matchesDepartment;
   });
@@ -268,7 +274,6 @@ export default function Projects() {
       projectCode: project.projectCode || "",
       department: project.department ?? [],
       clientName: project.clientName || "",
-      location: project.location || "",
       description: project.description || "",
       startDate: project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "",
       endDate: project.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "",
@@ -309,7 +314,6 @@ export default function Projects() {
         title: titleTrimmed,
         projectCode: formProject.projectCode?.trim() || "",
         clientName: formProject.clientName?.trim() || "",
-        location: formProject.location?.trim() || "",
         department: formProject.department || [],
         description: formProject.description?.trim() || "",
         status: formProject.status || "Planned",
@@ -454,9 +458,14 @@ export default function Projects() {
 
   const filteredEmployees =
     formProject.department.length > 0
-      ? employees.filter(emp =>
-        formProject.department.includes(emp.department)
-      )
+      ? employees.filter(emp => {
+          if (!emp.department) return false;
+          // Support multiple departments per employee
+          const empDepts = Array.isArray(emp.department)
+            ? emp.department.map(d => d.toLowerCase())
+            : [emp.department.toLowerCase()];
+          return formProject.department.some(selDept => empDepts.includes(selDept.toLowerCase()));
+        })
       : employees;
 
   // Group employees by department
@@ -482,17 +491,17 @@ export default function Projects() {
     : employees;
 
   // Apply department filtering to the team picker (if departments selected)
-  // Normalize to case-insensitive comparison
+  // Normalize department names for comparison
+  const normalizedSelectedDepartments = formProject.department.map(d => d.toLowerCase());
   const filteredEmployeesForPicker = formProject.department.length > 0
-    ? (() => {
-        const selected = filteredEmployeesForTeam.filter(emp => 
-          formProject.department.some(dept => 
-            emp.department?.toLowerCase() === dept.toLowerCase()
-          )
-        );
-        // If no employees found in selected departments, show all employees from search
-        return selected.length > 0 ? selected : filteredEmployeesForTeam;
-      })()
+    ? filteredEmployeesForTeam.filter(emp => {
+        if (!emp.department) return false;
+        // Support multiple departments per employee
+        const empDepts = Array.isArray(emp.department)
+          ? emp.department.map(d => d.toLowerCase())
+          : [emp.department.toLowerCase()];
+        return empDepts.some(dept => normalizedSelectedDepartments.includes(dept));
+      })
     : filteredEmployeesForTeam;
 
   // Group filtered employees by department
@@ -569,7 +578,7 @@ export default function Projects() {
               <DialogDescription className="font-sans">
                 {editingId
                   ? "Update project details and team assignments."
-                  : "Add a new project with team members and milestones."}
+                  : "Add a new project with team members and key steps."}
               </DialogDescription>
             </DialogHeader>
 
@@ -619,7 +628,7 @@ export default function Projects() {
               </div>
 
               {/* Client & Departments */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="clientName">Client Name <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <Input
@@ -627,16 +636,6 @@ export default function Projects() {
                     value={formProject.clientName}
                     onChange={(e) => setFormProject({ ...formProject, clientName: e.target.value })}
                     placeholder="e.g., Acme Corp"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                  <Input
-                    id="location"
-                    value={formProject.location}
-                    onChange={(e) => setFormProject({ ...formProject, location: e.target.value })}
-                    placeholder="e.g., Head Office / Site A"
                   />
                 </div>
                 <div className="space-y-2">
@@ -930,14 +929,14 @@ export default function Projects() {
         {/* Department Filter - Only for Admins */}
         {isAdmin && departments.length > 0 && (
           <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-            <SelectTrigger className="w-full md:w-56 max-w-[220px]">
+            <SelectTrigger className="w-full md:w-56">
               <SelectValue placeholder="All Departments" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Departments</SelectItem>
               {departments.map((dept) => (
-                <SelectItem key={dept} value={dept.toLowerCase()} className="truncate">
-                  <div className="truncate">{dept}</div>
+                <SelectItem key={dept} value={dept.toLowerCase()}>
+                  {dept}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1160,24 +1159,6 @@ export default function Projects() {
                               ) : (
                                 <span className="text-xs text-muted-foreground">No files uploaded</span>
                               )}
-                            </div>
-                          </div>
-                          <div className="pt-2">
-                            <label className="text-xs font-semibold">Upload file</label>
-                            <div className="flex items-center gap-2 mt-1">
-                              <input
-                                type="file"
-                                onChange={async (e) => {
-                                  const f = e.target.files?.[0];
-                                  if (!f) return;
-                                  setUploadingProject(project.id);
-                                  await handleFileUpload(project.id, f);
-                                  await fetchProjectFiles(project.id);
-                                  setUploadingProject(null);
-                                }}
-                                className="text-sm"
-                              />
-                              {uploadingProject === project.id && <span className="text-xs text-muted-foreground">Uploading...</span>}
                             </div>
                           </div>
                         </div>

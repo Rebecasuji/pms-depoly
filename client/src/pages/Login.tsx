@@ -19,6 +19,7 @@ export default function Login() {
   const { login } = useAuth();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   // show / hide password states
   const [showPassword, setShowPassword] = useState(false);
@@ -38,17 +39,30 @@ export default function Login() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage("");
 
     if (!employeeCode) {
-      alert("Please enter your employee code");
+      setErrorMessage("Please enter your employee code");
+      return;
+    }
+
+    if (!password) {
+      setErrorMessage("Please enter your password");
       return;
     }
 
     setIsLoading(true);
-    login(employeeCode, password).catch((err) => {
-      alert("Login failed");
-      setIsLoading(false);
-    });
+    login(employeeCode, password)
+      .then(() => {
+        console.log("[LOGIN] Login successful!");
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        const errorMsg = err?.message || "Login failed";
+        console.error("[LOGIN] Login error:", errorMsg, err);
+        setErrorMessage(errorMsg);
+        setIsLoading(false);
+      });
   };
 
   const handlePasswordReset = () => {
@@ -140,6 +154,12 @@ export default function Login() {
             </div>
 
             {/* Remember me removed */}
+
+            {errorMessage && (
+              <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                <p className="text-sm text-red-700">{errorMessage}</p>
+              </div>
+            )}
 
             <Button type="submit" className="h-11 w-full" disabled={isLoading}>
               {isLoading ? (

@@ -35,7 +35,7 @@ export default function AddEditTask() {
 
   const [employees, setEmployees] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  const [milestones, setMilestones] = useState<any[]>([]);
+  const [keySteps, setKeySteps] = useState<any[]>([]);
   const [subtasks, setSubtasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -136,10 +136,10 @@ export default function AddEditTask() {
     };
   }, [taskId]);
 
-  // Load milestones when project changes
+  // Load key steps when project changes
   useEffect(() => {
     if (!form.projectId) {
-      setMilestones([]);
+      setKeySteps([]);
       return;
     }
 
@@ -152,12 +152,12 @@ export default function AddEditTask() {
       })
       .then(data => {
         if (!isMounted) return;
-        setMilestones(Array.isArray(data) ? data : []);
+        setKeySteps(Array.isArray(data) ? data : []);
       })
       .catch(err => {
         if (!isMounted) return;
-        console.error("Failed to load milestones:", err);
-        setMilestones([]);
+        console.error("Failed to load key steps:", err);
+        setKeySteps([]);
       });
 
     return () => {
@@ -166,7 +166,7 @@ export default function AddEditTask() {
   }, [form.projectId]);
 
   const addSubtask = () => {
-    setSubtasks(s => [...s, { id: undefined, title: "", description: "", isCompleted: false, assignedTo: [] }]);
+    setSubtasks(s => [{ id: undefined, title: "", description: "", isCompleted: false, assignedTo: [] }, ...s]);
   };
 
   const updateSubtask = (index: number, key: string, value: any) => {
@@ -179,7 +179,7 @@ export default function AddEditTask() {
 
   const handleSave = async () => {
     if (!form.taskName || !form.projectId || !form.assignerId) {
-      toast({ variant: "destructive", title: "Validation Error", description: "Task Name, Project, and Assigner are required" });
+      toast({ variant: "destructive", title: "Validation Error", description: "Task Name, Project, and Assigned to are required" });
       return;
     }
 
@@ -264,7 +264,7 @@ export default function AddEditTask() {
 
         {/* Form */}
         <div className="bg-white rounded-lg border p-8 space-y-6">
-          {/* Row 1: Project & Assigner */}
+          {/* Row 1: Project & Assigned to */}
           <div className="grid grid-cols-2 gap-6">
             <div>
               <Label className="text-sm font-semibold mb-2 block">Project *</Label>
@@ -282,10 +282,10 @@ export default function AddEditTask() {
               </Select>
             </div>
             <div>
-              <Label className="text-sm font-semibold mb-2 block">Assigner *</Label>
+              <Label className="text-sm font-semibold mb-2 block">Assigned to *</Label>
               <Select value={form.assignerId} onValueChange={v => setForm(f => ({ ...f, assignerId: v }))}>
                 <SelectTrigger className="h-10">
-                  <SelectValue placeholder="Select Assigner" />
+                  <SelectValue placeholder="Select Assigned to" />
                 </SelectTrigger>
                 <SelectContent>
                   {employees.length > 0 ? (
@@ -324,16 +324,16 @@ export default function AddEditTask() {
             </div>
           </div>
 
-          {/* Milestone */}
+          {/* Key Step */}
           <div>
-            <Label className="text-sm font-semibold mb-2 block">Milestone (Key Step)</Label>
-            <Select value={form.keyStepId || "none"} onValueChange={v => setForm(f => ({ ...f, keyStepId: v === "none" ? "" : v }))}>
+            <Label className="text-sm font-semibold mb-2 block">Key Step (optional)</Label>
+            <Select value={form.keyStepId || "none"} onValueChange={v => setForm(f => ({ ...f, keyStepId: v === "none" ? "" : v }))}>  
               <SelectTrigger className="h-10">
-                <SelectValue placeholder="Select Milestone" />
+                <SelectValue placeholder="Select Key Step" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No Milestone</SelectItem>
-                {milestones.map(m => <SelectItem key={m.id} value={String(m.id)}>{m.title}</SelectItem>)}
+                <SelectItem value="none">No Key Step</SelectItem>
+                {keySteps.map(m => <SelectItem key={m.id} value={String(m.id)}>{m.title}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
