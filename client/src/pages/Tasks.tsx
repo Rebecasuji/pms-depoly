@@ -65,19 +65,29 @@ export default function Tasks() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // Helper: normalize department strings for robust matching
+  function normalizeDept(input?: string | null) {
+    if (!input) return "";
+    let v = String(input).trim().toLowerCase().replace(/\s+/g, " ");
+    if (v === 'presales') return v;
+    if (v.length > 3 && v.endsWith("s")) v = v.slice(0, -1);
+    return v;
+  }
+
   // Data
   const [employees, setEmployees] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [keySteps, setKeySteps] = useState<any[]>([]);
-  const [companies, setCompanies] = useState<string[]>([]);
+  const [clients, setClients] = useState<string[]>([]);
 
   // Filters / UI state
   const [projectId, setProjectId] = useState("");
   const [selectedKeyStepId, setSelectedKeyStepId] = useState<string>("");
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
 
   // Multi-select state for tasks
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -228,10 +238,10 @@ export default function Tasks() {
       .then((data) => {
         const arr = Array.isArray(data) ? data : [];
         setProjects(arr);
-        // Derive unique companies from projects
-        const companySet = new Set<string>();
-        arr.forEach((p: any) => { if (p.company) companySet.add(String(p.company)); });
-        setCompanies(Array.from(companySet));
+        // Derive unique clients from projects
+        const clientSet = new Set<string>();
+        arr.forEach((p: any) => { if (p.clientName) clientSet.add(String(p.clientName)); });
+        setClients(Array.from(clientSet));
       })
       .catch(() => setProjects([]));
 
@@ -283,12 +293,20 @@ export default function Tasks() {
       ? String(t.keyStepId) === String(selectedKeyStepId)
       : true;
 
-    // Company filter: match task's project company
+    // Project data for filtering
     const taskProject = projects.find(p => String(p.id) === String(t.projectId));
-    const matchesCompany = companyFilter === "all" ||
-      (taskProject && String(taskProject.company || "").toLowerCase() === companyFilter.toLowerCase());
 
-    return matchesSearch && matchesKey && matchesCompany;
+    // Client filter
+    const matchesClient = clientFilter === "all" ||
+      (taskProject && String(taskProject.clientName || "").toLowerCase() === clientFilter.toLowerCase());
+
+    // Department filter
+    const projectDepts = taskProject?.department || [];
+    const filterDeptNorm = normalizeDept(departmentFilter);
+    const matchesDepartment = departmentFilter === "all" ||
+      projectDepts.some((d: string) => normalizeDept(d) === filterDeptNorm);
+
+    return matchesSearch && matchesKey && matchesClient && matchesDepartment;
   });
 
   // Select all tasks in current filtered view
@@ -554,7 +572,7 @@ export default function Tasks() {
   return (
     <div className="space-y-6 p-6 bg-slate-50 min-h-screen">
       {/* HEADER */}
-      <div className="flex justify-between items-center">
+      <div className="space-y-4">
         <div>
           <h1 className="text-3xl font-bold">Tasks</h1>
           <p className="text-sm text-muted-foreground">
@@ -562,7 +580,7 @@ export default function Tasks() {
           </p>
         </div>
 
-        <div className="flex gap-4 flexticas-flex-wrap">
+        <div className="flex flex-wrap items-center gap-4">
           {/* Project select */}
           <div className="flex items-center">
             <span className="text-sm font-semibold mr-3">Project</span>
@@ -637,18 +655,36 @@ export default function Tasks() {
             </div>
           </div>
 
-          {/* Company Filter */}
+          {/* Client Filter */}
           <div className="flex items-center">
-            <span className="text-sm font-semibold mr-3">Company</span>
-            <Select value={companyFilter} onValueChange={setCompanyFilter}>
+            <span className="text-sm font-semibold mr-3">Client</span>
+            <Select value={clientFilter} onValueChange={setClientFilter}>
               <SelectTrigger className="w-56 bg-white">
-                <SelectValue placeholder="All Companies" />
+                <SelectValue placeholder="All Clients" />
               </SelectTrigger>
               <SelectContent className="max-h-[300px] overflow-y-auto">
-                <SelectItem value="all">All Companies</SelectItem>
-                {companies.map((c) => (
+                <SelectItem value="all">All Clients</SelectItem>
+                {clients.map((c) => (
                   <SelectItem key={c} value={c.toLowerCase()}>
                     {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Department Filter */}
+          <div className="flex items-center">
+            <span className="text-sm font-semibold mr-3">Department</span>
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="w-56 bg-white">
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px] overflow-y-auto">
+                <SelectItem value="all">All Departments</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
                   </SelectItem>
                 ))}
               </SelectContent>

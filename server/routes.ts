@@ -48,6 +48,10 @@ export async function registerRoutes(
     if (!input) return "";
     // Trim, collapse multi-spaces, lowercase
     let v = String(input).trim().toLowerCase().replace(/\s+/g, " ");
+
+    // EXCEPTION: Don't normalize 'presales' to 'presale'
+    if (v === 'presales') return v;
+
     // Basic plural normalization: turn trailing 's' into singular (operations -> operation)
     if (v.length > 3 && v.endsWith("s")) v = v.slice(0, -1);
     return v;
@@ -417,7 +421,7 @@ export async function registerRoutes(
       };
 
       // Generate projectCode only if provided
-      const finalProjectCode = projectCode?.trim() || `P-${Date.now()}`;
+      let finalProjectCode = projectCode?.trim() || `P-${Date.now()}`;
 
       // Format required dates
       const finalStartDate = formatDate(startDate);
@@ -432,7 +436,6 @@ export async function registerRoutes(
           title: title.trim(),
           projectCode: finalProjectCode,
           clientName: clientName?.trim() || null,
-          company: company?.trim() || null,
           location: location?.trim() || null,
           description: description?.trim() || null,
           status: status || "Planned",
@@ -503,8 +506,11 @@ export async function registerRoutes(
       let errorMessage = err instanceof Error ? err.message : String(err);
       let statusCode = 500;
 
-      // Handle specific error cases
-      if (errorMessage.includes("validation")) {
+      // Check for duplicate projectCode error (PostgreSQL error code 23505 = unique violation)
+      if (err.code === '23505' || err.constraint === 'projects_project_code_key') {
+        errorMessage = `Project code already exists. Please use a different project code or leave it empty to auto-generate.`;
+        statusCode = 409; // Conflict
+      } else if (errorMessage.includes("validation")) {
         statusCode = 400;
       } else if (errorMessage.includes("unique")) {
         statusCode = 409;
@@ -512,18 +518,6 @@ export async function registerRoutes(
       }
 
       console.error("❌ Project creation failed:", errorMessage);
-      res.status(statusCode).json({
-        error: "Failed to create project",
-        message: errorMessage
-      });
-
-      // Check for duplicate projectCode error (PostgreSQL error code 23505 = unique violation)
-      if (err.code === '23505' || err.constraint === 'projects_project_code_key') {
-        errorMessage = `Project code '${finalProjectCode}' already exists. Please use a different project code or leave it empty to auto-generate.`;
-        statusCode = 409; // Conflict
-      }
-
-      console.error("Projects insert error:", errorMessage);
       if (statusCode !== 409) {
         console.error("Full error:", err);
       }
@@ -541,47 +535,55 @@ export async function registerRoutes(
         department = [],
         description,
         clientName,
+        company,
         location,
         status,
         startDate,
         endDate,
-        progress,
+        progress = 0,
         team = [],
         vendors: vendorList = [],
       } = req.body;
 
-      // Validate required fields
-      if (!title || !title.trim()) {
-        return res.status(400).json({ error: "Project title is required" });
+      // Validate required fields using shared validator for consistency
+      const validationErrors = DataValidator.validateProject({
+        title,
+        startDate,
+        endDate,
+        progress,
+        department,
+        team,
+        vendors: vendorList,
+      });
+
+      if (validationErrors.length > 0) {
+        console.warn("❌ Project update validation failed:", validationErrors);
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validationErrors
+        });
       }
 
-      if (!startDate) {
-        return res.status(400).json({ error: "Start date is required" });
-      }
-
-      if (!endDate) {
-        return res.status(400).json({ error: "End date is required" });
-      }
-
-      // Convert dates to string format (YYYY-MM-DD) for DATE column
       const formatDate = (date: any) => {
-        if (!date) return undefined;
-        const d = new Date(date);
-        return d.toISOString().split('T')[0];
+        const formatted = DataValidator.formatDate(date);
+        if (!formatted) throw new Error(`Invalid date format: ${date}`);
+        return formatted;
       };
 
       const updateData: any = {
-        title,
-        projectCode,
-        clientName: clientName || null,
-        location: location || null,
-        description: description || null,
-        status: status || "open",
-        progress: Number(progress) || 0,
+        title: title.trim(),
+        projectCode: projectCode?.trim() || null,
+        clientName: clientName?.trim() || null,
+        location: location?.trim() || null,
+        description: description?.trim() || null,
+        status: status || "Planned",
+        progress: Math.min(100, Math.max(0, Number(progress) || 0)),
         updatedAt: new Date(),
         startDate: formatDate(startDate),
         endDate: formatDate(endDate),
       };
+
+      console.log("✅ Project update validation passed, updating project:", { id, title });
 
       const [updated] = await db
         .update(projects)
@@ -591,50 +593,65 @@ export async function registerRoutes(
 
       if (!updated) return res.status(404).json({ error: "Project not found" });
 
-      // Update departments
-      await db.delete(projectDepartments).where(eq(projectDepartments.projectId, id));
+      // Update related records
+      const insertPromises: Promise<any>[] = [];
+
+      // Always clear and recreate relations to ensure sync
+      await Promise.all([
+        db.delete(projectDepartments).where(eq(projectDepartments.projectId, id)),
+        db.delete(projectTeamMembers).where(eq(projectTeamMembers.projectId, id)),
+        db.delete(projectVendors).where(eq(projectVendors.projectId, id)),
+      ]);
+
       if (Array.isArray(department) && department.length > 0) {
-        await db.insert(projectDepartments).values(
-          department.map((dept: string) => ({
-            projectId: id,
-            department: normalizeDept(String(dept)),
-          }))
+        insertPromises.push(
+          db.insert(projectDepartments).values(
+            department.filter(d => d?.trim()).map((dept: string) => ({
+              projectId: id,
+              department: normalizeDept(dept),
+            }))
+          )
         );
       }
 
-      // Update team members
-      await db.delete(projectTeamMembers).where(eq(projectTeamMembers.projectId, id));
       if (Array.isArray(team) && team.length > 0) {
-        await db.insert(projectTeamMembers).values(
-          team.map((empId: string) => ({
-            projectId: id,
-            employeeId: empId,
-          }))
+        insertPromises.push(
+          db.insert(projectTeamMembers).values(
+            team.filter(t => t?.trim()).map((empId: string) => ({
+              projectId: id,
+              employeeId: empId,
+            }))
+          )
         );
       }
 
-      // Update vendors
-      await db.delete(projectVendors).where(eq(projectVendors.projectId, id));
       if (Array.isArray(vendorList) && vendorList.length > 0) {
-        await db.insert(projectVendors).values(
-          vendorList.map((vendor: string) => ({
-            projectId: id,
-            vendorName: vendor,
-          }))
+        insertPromises.push(
+          db.insert(projectVendors).values(
+            vendorList.filter(v => v?.trim()).map((vendor: string) => ({
+              projectId: id,
+              vendorName: vendor,
+            }))
+          )
         );
+      }
+
+      if (insertPromises.length > 0) {
+        await Promise.all(insertPromises);
       }
 
       const result = {
         ...updated,
-        department,
-        team,
-        vendors: vendorList,
+        department: department || [],
+        team: team || [],
+        vendors: vendorList || [],
       };
 
+      console.log("✅ Project updated successfully:", id);
       res.json(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error("Project update error:", errorMessage);
+      console.error("❌ Project update failed:", errorMessage);
       res.status(500).json({ error: "Failed to update project", details: errorMessage });
     }
   });
@@ -1218,8 +1235,6 @@ export async function registerRoutes(
           description: st.description || "",
           isCompleted: !!st.isCompleted,
           assignedTo: Array.isArray(st.assignedTo) && st.assignedTo.length > 0 ? st.assignedTo[0] : (typeof st.assignedTo === 'string' ? st.assignedTo : null),
-          startDate: st.startDate || null,
-          endDate: st.endDate || null,
           startDate: st.startDate || null,
           endDate: st.endDate || null,
         }));
@@ -1939,7 +1954,7 @@ export async function registerRoutes(
         if (!membership || membership.length === 0) return res.status(403).json({ error: "Unauthorized" });
       }
 
-      const filePath = fileRecord.filePath || fileRecord.storageUrl;
+      const filePath = (fileRecord as any).filePath || fileRecord.storageUrl;
       if (!filePath) {
         return res.status(404).json({ error: "File path not found" });
       }

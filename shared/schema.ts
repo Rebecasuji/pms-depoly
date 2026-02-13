@@ -56,7 +56,7 @@ export const projects = pgTable("projects", {
   // Optional physical/location field near client
   location: text("location"),
 
-  status: text("status").notNull().default("open"),
+  status: text("status").notNull().default("Planned"),
   progress: integer("progress").notNull().default(0),
 
   startDate: date("start_date").notNull(),

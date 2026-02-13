@@ -76,8 +76,8 @@ export default function Projects() {
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
-  const [companies, setCompanies] = useState<string[]>([]);
-  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [clients, setClients] = useState<string[]>([]);
+  const [clientFilter, setClientFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
@@ -97,7 +97,6 @@ export default function Projects() {
     projectCode: "",
     department: [] as string[],
     clientName: "",
-    company: "",
     description: "",
     startDate: "",
     endDate: "",
@@ -150,12 +149,12 @@ export default function Projects() {
       }
       const data = await res.json();
       setProjects(data);
-      // derive unique companies from projects for filtering
-      const companySet = new Set<string>();
+      // derive unique clients from projects for filtering
+      const clientSet = new Set<string>();
       if (Array.isArray(data)) {
-        data.forEach((p: any) => { if (p.company) companySet.add(String(p.company)); });
+        data.forEach((p: any) => { if (p.clientName) clientSet.add(String(p.clientName)); });
       }
-      setCompanies(Array.from(companySet));
+      setClients(Array.from(clientSet));
     } catch (err: any) {
       console.error("Failed to fetch projects", err);
       toast({ variant: "destructive", title: "Failed to load projects", description: err?.message || "Unknown error" });
@@ -253,6 +252,10 @@ export default function Projects() {
     if (!input) return "";
     // Trim, collapse multi-spaces, lowercase
     let v = String(input).trim().toLowerCase().replace(/\s+/g, " ");
+
+    // EXCEPTION: Don't normalize 'presales' to 'presale'
+    if (v === 'presales') return v;
+
     // Basic plural normalization: turn trailing 's' into singular (operations -> operation)
     if (v.length > 3 && v.endsWith("s")) v = v.slice(0, -1);
     return v;
@@ -276,9 +279,9 @@ export default function Projects() {
       departmentFilter === "all" ||
       projectDepts.some((dept: string) => dept === filterDeptNorm);
 
-    const matchesCompany = companyFilter === 'all' || (String(p.company || '').toLowerCase() === companyFilter.toLowerCase());
+    const matchesClient = clientFilter === 'all' || (String(p.clientName || '').toLowerCase() === clientFilter.toLowerCase());
 
-    return matchesSearch && matchesStatus && matchesDepartment && matchesCompany;
+    return matchesSearch && matchesStatus && matchesDepartment && matchesClient;
   });
 
   const handleOpenCreate = () => {
@@ -336,7 +339,6 @@ export default function Projects() {
       projectCode: project.projectCode || "",
       department: project.department ?? [],
       clientName: project.clientName || "",
-      company: project.company || "",
       description: project.description || "",
       startDate: project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "",
       endDate: project.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "",
@@ -405,9 +407,10 @@ export default function Projects() {
 
       if (!response.ok) {
         let errorMessage = "Failed to save project";
+        const errorText = await response.text();
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.details || errorData.error || errorMessage;
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
           if (response.status === 409) {
             toast({
               variant: "destructive",
@@ -417,8 +420,7 @@ export default function Projects() {
             return;
           }
         } catch (e) {
-          const text = await response.text();
-          errorMessage = text || errorMessage;
+          errorMessage = errorText || errorMessage;
         }
         toast({ variant: "destructive", title: "Error", description: errorMessage });
         return;
@@ -432,7 +434,6 @@ export default function Projects() {
         projectCode: "",
         department: [],
         clientName: "",
-        company: "",
         description: "",
         startDate: "",
         endDate: "",
@@ -702,13 +703,6 @@ export default function Projects() {
                     onChange={(e) => setFormProject({ ...formProject, clientName: e.target.value })}
                     placeholder="e.g., Acme Corp"
                   />
-                  <Label htmlFor="company">Company <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                  <Input
-                    id="company"
-                    value={formProject.company}
-                    onChange={(e) => setFormProject({ ...formProject, company: e.target.value })}
-                    placeholder="e.g., ACME Holdings"
-                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Departments <span className="text-xs text-muted-foreground">(optional)</span></Label>
@@ -731,12 +725,15 @@ export default function Projects() {
                         >
                           <input
                             type="checkbox"
-                            checked={isChecked}
+                            checked={formProject.department.some(d => normalizeDept(d) === normalizeDept(dept))}
                             onChange={() => {
+                              const deptNorm = normalizeDept(dept);
+                              const isCurrentlyChecked = formProject.department.some(d => normalizeDept(d) === deptNorm);
+
                               setFormProject((prev) => ({
                                 ...prev,
-                                department: isChecked
-                                  ? prev.department.filter(d => d !== dept)
+                                department: isCurrentlyChecked
+                                  ? prev.department.filter(d => normalizeDept(d) !== deptNorm)
                                   : Array.from(new Set([...prev.department, dept])),
                               }));
                             }}
@@ -1015,14 +1012,14 @@ export default function Projects() {
           </Select>
         )}
 
-        {/* Company Filter (available for all users) */}
-        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+        {/* Client Filter (available for all users) */}
+        <Select value={clientFilter} onValueChange={setClientFilter}>
           <SelectTrigger className="w-full md:w-48">
-            <SelectValue placeholder="All Companies" />
+            <SelectValue placeholder="All Clients" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Companies</SelectItem>
-            {companies.map((c) => (
+            <SelectItem value="all">All Clients</SelectItem>
+            {clients.map((c) => (
               <SelectItem key={c} value={c.toLowerCase()}>
                 {c}
               </SelectItem>
@@ -1061,11 +1058,10 @@ export default function Projects() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="in-progress">In Progress</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="out of schedule">Out of Schedule</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
+            <SelectItem value="Planned">Planned</SelectItem>
+            <SelectItem value="In Progress">In Progress</SelectItem>
+            <SelectItem value="On Hold">On Hold</SelectItem>
+            <SelectItem value="Completed">Completed</SelectItem>
           </SelectContent>
         </Select>
       </div>
