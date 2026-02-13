@@ -52,6 +52,7 @@ export const projects = pgTable("projects", {
   description: text("description"),
 
   clientName: text("client_name"),
+  company: text("company"),
   // Optional physical/location field near client
   location: text("location"),
 
@@ -166,6 +167,8 @@ export const subtasks = pgTable("subtasks", {
   description: text("description").default(""),
   isCompleted: boolean("is_completed").default(false),
   assignedTo: uuid("assigned_to").references(() => employees.id),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -243,7 +246,11 @@ export type Project = typeof projects.$inferSelect;
 export type KeyStep = typeof keySteps.$inferSelect;
 export type ProjectTask = typeof projectTasks.$inferSelect;
 export type TaskMember = typeof taskMembers.$inferSelect;
-export type Subtask = typeof subtasks.$inferSelect;
+export type Subtask = typeof subtasks.$inferSelect & {
+  startDate?: string;
+  endDate?: string;
+  isCompleted: boolean;
+};
 export type ProjectFile = typeof projectFiles.$inferSelect;
 export type Vendor = typeof vendors.$inferSelect;
 export type Session = typeof sessions.$inferSelect;

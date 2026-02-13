@@ -4,7 +4,6 @@ import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/apiClient";
 import {
   Select,
@@ -30,8 +29,6 @@ export default function AddKeyStep() {
   const [form, setForm] = useState({
     header: "",
     title: "",
-    description: "",
-    requirements: "",
     phase: "1",
     status: "pending" as "pending" | "in-progress" | "completed",
     startDate: "",
@@ -64,8 +61,6 @@ export default function AddKeyStep() {
           setForm({
             header: data.header || "",
             title: data.title || "",
-            description: data.description || "",
-            requirements: data.requirements || "",
             phase: String(data.phase) || "1",
             status: data.status || "pending",
             startDate: data.startDate || "",
@@ -174,29 +169,7 @@ export default function AddKeyStep() {
               <p className="text-xs text-muted-foreground">Required field</p>
             </div>
 
-            {/* Description */}
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                placeholder="Detail the objectives of this step..."
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                rows={4}
-              />
-            </div>
 
-            {/* Requirements */}
-            <div className="grid gap-2">
-              <Label htmlFor="requirements">Requirements</Label>
-              <Textarea
-                id="requirements"
-                placeholder="List specific requirements for this step..."
-                value={form.requirements}
-                onChange={(e) => setForm({ ...form, requirements: e.target.value })}
-                rows={4}
-              />
-            </div>
 
             {/* Phase and Status */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,3 +1,4 @@
+import React from "react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
@@ -55,6 +56,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { v4 as uuidv4 } from "uuid";
 import { useToast } from "@/hooks/use-toast";
+import { ProjectDetailsWithCounts } from "./ProjectDetailsWithCounts";
+// Types for keystep/task
+type KeyStep = { id: string; projectId: string };
+type Task = {
+  id: string;
+  projectId: string;
+  taskName?: string;
+  status?: string;
+};
 import { useAuth } from "@/components/Layout";
 import { apiFetch } from "@/lib/apiClient";
 
@@ -66,6 +76,8 @@ export default function Projects() {
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
@@ -85,6 +97,7 @@ export default function Projects() {
     projectCode: "",
     department: [] as string[],
     clientName: "",
+    company: "",
     description: "",
     startDate: "",
     endDate: "",
@@ -97,6 +110,9 @@ export default function Projects() {
   const [projectFiles, setProjectFiles] = useState<Record<string, any[]>>({});
   const [vendorInput, setVendorInput] = useState("");
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
+  const [allKeySteps, setAllKeySteps] = useState<KeyStep[]>([]); // legacy, not used in list
+  const [allTasks, setAllTasks] = useState<Task[]>([]); // legacy, not used in list
+  const [allSubtasks, setAllSubtasks] = useState<any[]>([]);
 
   // use shared apiFetch from lib/apiClient (includes caching, dedupe, auth)
 
@@ -107,10 +123,16 @@ export default function Projects() {
       if (!res.ok) throw new Error("Failed to fetch departments");
       const data = await res.json();
       let deptList = Array.isArray(data) ? data : [];
-      if (!deptList.includes("presales")) {
-        deptList.push("presales");
-      }
-      setDepartments(deptList);
+      // normalize/dedupe departments (case-insensitive) and ensure 'presales' exists
+      const map = new Map<string, string>();
+      deptList.forEach((d: string) => {
+        if (!d) return;
+        const key = d.toLowerCase();
+        if (!map.has(key)) map.set(key, d);
+      });
+      if (!map.has('presales')) map.set('presales', 'Presales');
+      const deduped = Array.from(map.values());
+      setDepartments(deduped);
     } catch (err) {
       console.error("Failed to fetch departments", err);
       setDepartments([]);
@@ -121,11 +143,23 @@ export default function Projects() {
   const fetchProjects = async () => {
     try {
       const res = await apiFetch("/api/projects");
-      if (!res.ok) throw new Error("Failed to fetch projects");
+      if (!res.ok) {
+        // surface 401/other failures to user
+        const body = await res.clone().text().catch(() => null);
+        throw new Error(res.status === 401 ? "Unauthorized - please login" : (body || `HTTP ${res.status}`));
+      }
       const data = await res.json();
       setProjects(data);
-    } catch (err) {
+      // derive unique companies from projects for filtering
+      const companySet = new Set<string>();
+      if (Array.isArray(data)) {
+        data.forEach((p: any) => { if (p.company) companySet.add(String(p.company)); });
+      }
+      setCompanies(Array.from(companySet));
+    } catch (err: any) {
       console.error("Failed to fetch projects", err);
+      toast({ variant: "destructive", title: "Failed to load projects", description: err?.message || "Unknown error" });
+      setProjects([]);
     }
   };
 
@@ -184,6 +218,21 @@ export default function Projects() {
 
     loadInitialData();
     fetchProjects();
+
+    // Fetch all keysteps and tasks for all projects (legacy, not used in list)
+    apiFetch("/api/keysteps/bulk")
+      .then(r => r.json())
+      .then(data => setAllKeySteps(Array.isArray(data) ? data : []))
+      .catch(() => setAllKeySteps([]));
+    apiFetch("/api/tasks/bulk")
+      .then(r => r.json())
+      .then(data => setAllTasks(Array.isArray(data) ? data : []))
+      .catch(() => setAllTasks([]));
+    // Fetch all subtasks for all projects
+    apiFetch("/api/subtasks/bulk")
+      .then(r => r.json())
+      .then(data => setAllSubtasks(Array.isArray(data) ? data : []))
+      .catch(() => setAllSubtasks([]));
   }, []);
 
   const fetchProjectFiles = async (projectId: string) => {
@@ -199,6 +248,16 @@ export default function Projects() {
     }
   };
 
+  // Helper: normalize department strings for robust matching (matches backend)
+  function normalizeDept(input?: string | null) {
+    if (!input) return "";
+    // Trim, collapse multi-spaces, lowercase
+    let v = String(input).trim().toLowerCase().replace(/\s+/g, " ");
+    // Basic plural normalization: turn trailing 's' into singular (operations -> operation)
+    if (v.length > 3 && v.endsWith("s")) v = v.slice(0, -1);
+    return v;
+  }
+
   const filteredProjects = projects.filter(p => {
     const matchesSearch =
       p.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -208,16 +267,18 @@ export default function Projects() {
     const matchesStatus = statusFilter === "all" || p.status === statusFilter;
 
     // Normalize department filter value to match backend normalization
-    const filterDeptNorm = departmentFilter === "all" ? "" : departmentFilter.toLowerCase();
+    const filterDeptNorm = departmentFilter === "all" ? "" : normalizeDept(departmentFilter);
     // Support multiple departments per project
     const projectDepts = Array.isArray(p.department)
-      ? p.department.map((d: string) => d.toLowerCase())
-      : [String(p.department).toLowerCase()];
+      ? p.department.map((d: string) => normalizeDept(d))
+      : [normalizeDept(String(p.department))];
     const matchesDepartment =
       departmentFilter === "all" ||
-      projectDepts.some(dept => dept === filterDeptNorm);
+      projectDepts.some((dept: string) => dept === filterDeptNorm);
 
-    return matchesSearch && matchesStatus && matchesDepartment;
+    const matchesCompany = companyFilter === 'all' || (String(p.company || '').toLowerCase() === companyFilter.toLowerCase());
+
+    return matchesSearch && matchesStatus && matchesDepartment && matchesCompany;
   });
 
   const handleOpenCreate = () => {
@@ -229,6 +290,7 @@ export default function Projects() {
       projectCode: "",
       department: [],
       clientName: "",
+      company: "",
       description: "",
       startDate: "",
       endDate: "",
@@ -274,6 +336,7 @@ export default function Projects() {
       projectCode: project.projectCode || "",
       department: project.department ?? [],
       clientName: project.clientName || "",
+      company: project.company || "",
       description: project.description || "",
       startDate: project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "",
       endDate: project.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "",
@@ -314,6 +377,7 @@ export default function Projects() {
         title: titleTrimmed,
         projectCode: formProject.projectCode?.trim() || "",
         clientName: formProject.clientName?.trim() || "",
+        company: formProject.company?.trim() || "",
         department: formProject.department || [],
         description: formProject.description?.trim() || "",
         status: formProject.status || "Planned",
@@ -368,6 +432,7 @@ export default function Projects() {
         projectCode: "",
         department: [],
         clientName: "",
+        company: "",
         description: "",
         startDate: "",
         endDate: "",
@@ -459,13 +524,13 @@ export default function Projects() {
   const filteredEmployees =
     formProject.department.length > 0
       ? employees.filter(emp => {
-          if (!emp.department) return false;
-          // Support multiple departments per employee
-          const empDepts = Array.isArray(emp.department)
-            ? emp.department.map(d => d.toLowerCase())
-            : [emp.department.toLowerCase()];
-          return formProject.department.some(selDept => empDepts.includes(selDept.toLowerCase()));
-        })
+        if (!emp.department) return false;
+        // Support multiple departments per employee
+        const empDepts = Array.isArray(emp.department)
+          ? emp.department.map((d: string) => d.toLowerCase())
+          : [emp.department.toLowerCase()];
+        return formProject.department.some(selDept => empDepts.includes(selDept.toLowerCase()));
+      })
       : employees;
 
   // Group employees by department
@@ -481,13 +546,13 @@ export default function Projects() {
   const sortedDepartments = Object.keys(employeesByDepartment).sort();
 
   // Filter employees by search term for team member dropdown
-  const filteredEmployeesForTeam = teamMemberSearch.trim() 
-    ? employees.filter(emp => 
-        emp.name?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
-        emp.empCode?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
-        emp.designation?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
-        emp.department?.toLowerCase().includes(teamMemberSearch.toLowerCase())
-      )
+  const filteredEmployeesForTeam = teamMemberSearch.trim()
+    ? employees.filter(emp =>
+      emp.name?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+      emp.empCode?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+      emp.designation?.toLowerCase().includes(teamMemberSearch.toLowerCase()) ||
+      emp.department?.toLowerCase().includes(teamMemberSearch.toLowerCase())
+    )
     : employees;
 
   // Apply department filtering to the team picker (if departments selected)
@@ -495,13 +560,13 @@ export default function Projects() {
   const normalizedSelectedDepartments = formProject.department.map(d => d.toLowerCase());
   const filteredEmployeesForPicker = formProject.department.length > 0
     ? filteredEmployeesForTeam.filter(emp => {
-        if (!emp.department) return false;
-        // Support multiple departments per employee
-        const empDepts = Array.isArray(emp.department)
-          ? emp.department.map(d => d.toLowerCase())
-          : [emp.department.toLowerCase()];
-        return empDepts.some(dept => normalizedSelectedDepartments.includes(dept));
-      })
+      if (!emp.department) return false;
+      // Support multiple departments per employee
+      const empDepts = Array.isArray(emp.department)
+        ? emp.department.map((d: string) => d.toLowerCase())
+        : [emp.department.toLowerCase()];
+      return empDepts.some((dept: string) => normalizedSelectedDepartments.includes(dept));
+    })
     : filteredEmployeesForTeam;
 
   // Group filtered employees by department
@@ -637,14 +702,21 @@ export default function Projects() {
                     onChange={(e) => setFormProject({ ...formProject, clientName: e.target.value })}
                     placeholder="e.g., Acme Corp"
                   />
+                  <Label htmlFor="company">Company <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                  <Input
+                    id="company"
+                    value={formProject.company}
+                    onChange={(e) => setFormProject({ ...formProject, company: e.target.value })}
+                    placeholder="e.g., ACME Holdings"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Departments <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <div className="grid grid-cols-2 gap-2 border rounded-lg p-3 bg-muted/20">
                     {[
                       "HR",
-                      "Operations",
-                      "Software Developers",
+                      "Operation",
+                      "Software Developer",
                       "Finance",
                       "Purchase",
                       "Presales",
@@ -717,7 +789,7 @@ export default function Projects() {
                         setTeamMemberSearch("");
                       }}
                     >
-                        <SelectTrigger className="w-full bg-background">
+                      <SelectTrigger className="w-full bg-background">
                         <SelectValue placeholder={filteredEmployeesForPicker.length === 0 ? "No employees match search" : "Select employee to add..."} />
                       </SelectTrigger>
                       <SelectContent className="max-h-[300px] w-full">
@@ -943,6 +1015,22 @@ export default function Projects() {
           </Select>
         )}
 
+        {/* Company Filter (available for all users) */}
+        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+          <SelectTrigger className="w-full md:w-48">
+            <SelectValue placeholder="All Companies" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Companies</SelectItem>
+            {companies.map((c) => (
+              <SelectItem key={c} value={c.toLowerCase()}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+
         {/* Status Filter */}
         {/* Sort */}
         <div className="flex gap-2">
@@ -983,6 +1071,7 @@ export default function Projects() {
       </div>
 
       <div className="grid gap-3 font-sans">
+
         {filteredProjects.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
@@ -993,144 +1082,199 @@ export default function Projects() {
         ) : (
           sortedProjects.map(project => {
             const isExpanded = expandedId === project.id;
-
+            // Count keysteps and tasks for this project
+            const keystepCount = allKeySteps.filter(ks => ks.projectId === project.id).length;
+            const taskCount = allTasks.filter(t => t.projectId === project.id).length;
             return (
-              <Card key={project.id} className="hover:shadow-sm transition-all overflow-hidden border-muted/60">
-                <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/20" onClick={() => {
-                    // Toggle expanded details view
+              <React.Fragment key={project.id}>
+                <Card className="hover:shadow-sm transition-all overflow-hidden border-muted/60">
+                  <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/20" onClick={() => {
                     setExpandedId(isExpanded ? null : project.id);
                   }}>
-                  <div className="flex items-center gap-4 flex-1">
-                    <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                    <div className="flex-1">
-                      <span className="font-bold text-foreground leading-tight">{project.title}</span>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <div className="text-sm text-muted-foreground">{employees.find(e => e.id === project.createdByEmployeeId)?.name || "-"}</div>
-                      <div className="text-sm text-muted-foreground">{formatDateDisplay(project.createdAt)}</div>
-                      <div className="text-sm text-muted-foreground">{project.endDate ? formatDateDisplay(project.endDate) : "Not set"}</div>
+                    <div className="flex items-center gap-4 flex-1">
+                      <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      <div className="flex-1">
+                        <span className="font-bold text-foreground leading-tight">{project.title}</span>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <div className="text-sm text-muted-foreground">{employees.find(e => e.id === project.createdByEmployeeId)?.name || "-"}</div>
+                        <div className="text-sm text-muted-foreground">{formatDateDisplay(project.createdAt)}</div>
+                        <div className="text-sm text-muted-foreground">{project.endDate ? formatDateDisplay(project.endDate) : "Not set"}</div>
+                        {/* Show keystep/task counts only */}
+                        <div className="flex items-center gap-2 ml-4">
+                          <Badge variant="outline" className="text-xs">Key Steps: {keystepCount}</Badge>
+                          <Badge variant="outline" className="text-xs">Tasks: {taskCount}</Badge>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                {isExpanded && (
-                  <CardContent className="pt-0 pb-5 px-4 animate-in fade-in slide-in-from-top-1">
-                    <div className="pt-4 border-t border-muted/40 space-y-6">
-                      <div className="grid md:grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold uppercase text-muted-foreground">About Project</p>
-                            <p className="text-sm text-foreground/80 leading-relaxed">{project.description}</p>
+                  {isExpanded && (
+                    <CardContent className="pt-0 pb-5 px-4 animate-in fade-in slide-in-from-top-1">
+                      <div>
+                        <div className="grid md:grid-cols-2 gap-6">
+                          <div className="space-y-4">
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">About Project</p>
+                              <p className="text-sm text-foreground/80 leading-relaxed">{project.description}</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground bg-muted/40 w-fit px-2 py-1 rounded">
+                              <Hash className="h-3 w-3" />
+                              Code: {project.projectCode || "N/A"}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground bg-muted/40 w-fit px-2 py-1 rounded">
-                            <Hash className="h-3 w-3" />
-                            Code: {project.projectCode || "N/A"}
-                          </div>
-                        </div>
 
-                        <div>
-                          <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">
-                            Departments
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {project.department && project.department.length > 0 ? (
-                              project.department.map((dept: string) => (
-                                <Badge key={dept} variant="secondary">
-                                  {dept}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                No departments assigned
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div className="col-span-2">
-                            <p className="text-muted-foreground text-xs uppercase font-semibold">Client</p>
-                            <p className="font-medium">{project.clientName || "Not Assigned"}</p>
-                          </div>
                           <div>
-                            <p className="text-muted-foreground text-xs uppercase font-semibold">Start Date</p>
-                            <p className="font-medium">{project.startDate ? new Date(project.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                            <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Departments</p>
+                            <div className="flex flex-wrap gap-2">
+                              {project.department && project.department.length > 0 ? (
+                                project.department.map((dept: string) => (
+                                  <Badge key={dept} variant="secondary">{dept}</Badge>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No departments assigned</span>
+                              )}
+                            </div>
                           </div>
+
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground text-xs uppercase font-semibold">Client</p>
+                              <p className="font-medium">{project.clientName || "Not Assigned"}</p>
+                              {project.company ? <div className="text-xs text-muted-foreground">{project.company}</div> : null}
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs uppercase font-semibold">Start Date</p>
+                              <p className="font-medium">{project.startDate ? new Date(project.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs uppercase font-semibold">End Date</p>
+                              <p className="font-medium">{project.endDate ? new Date(project.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Subtask summary (compact, aligned) */}
+                        <div className="mt-4 bg-muted/10 p-3 rounded-lg">
+                          {(() => {
+                            // Get all subtasks for this project
+                            const projectTaskIds = allTasks.filter(t => t.projectId === project.id).map(t => t.id);
+                            const subtasksForProject = allSubtasks.filter(st => projectTaskIds.includes(st.taskId));
+                            const completedCount = subtasksForProject.filter(st => st.isCompleted).length;
+                            const inProgressCount = subtasksForProject.filter(st => st.isCompleted === false).length;
+                            const pendingCount = subtasksForProject.filter(st => st.status === 'pending').length;
+                            return (
+                              <>
+                                <div className="flex flex-wrap gap-4 items-center mb-2">
+                                  <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200">Completed: {completedCount}</Badge>
+                                  <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-200">In Progress: {inProgressCount}</Badge>
+                                  <Badge variant="outline" className="text-xs bg-orange-100 text-orange-700 border-orange-200">Pending: {pendingCount}</Badge>
+                                </div>
+                                {subtasksForProject.length > 0 ? (
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs border rounded bg-white">
+                                      <thead>
+                                        <tr className="bg-muted/30">
+                                          <th className="px-2 py-1 text-left font-semibold">Subtask</th>
+                                          <th className="px-2 py-1 text-left font-semibold">Start Date</th>
+                                          <th className="px-2 py-1 text-left font-semibold">End Date</th>
+                                          <th className="px-2 py-1 text-left font-semibold">Status</th>
+                                          <th className="px-2 py-1"></th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {subtasksForProject.map(st => (
+                                          <tr key={st.id} className="border-b last:border-b-0">
+                                            <td className="px-2 py-1 whitespace-nowrap">{st.title || st.name || st.subtaskName || st.id}</td>
+                                            <td className="px-2 py-1 whitespace-nowrap">{st.startDate ? new Date(st.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</td>
+                                            <td className="px-2 py-1 whitespace-nowrap">{st.endDate ? new Date(st.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</td>
+                                            <td className="px-2 py-1 whitespace-nowrap">{st.isCompleted ? 'Completed' : st.status || 'In Progress'}</td>
+                                            <td className="px-2 py-1">
+                                              <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                className="text-destructive"
+                                                title="Delete Subtask"
+                                                onClick={async () => {
+                                                  if (window.confirm('Delete this subtask?')) {
+                                                    try {
+                                                      const res = await apiFetch(`/api/subtasks/${st.id}`, { method: 'DELETE' });
+                                                      if (res.ok) {
+                                                        setAllSubtasks(prev => prev.filter(s => s.id !== st.id));
+                                                        toast({ title: 'Deleted', description: 'Subtask deleted.' });
+                                                      } else {
+                                                        toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete subtask.' });
+                                                      }
+                                                    } catch (err) {
+                                                      toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete subtask.' });
+                                                    }
+                                                  }
+                                                }}
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </Button>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground italic">No subtasks for this project.</div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Vendors and upload section as before, with upload option */}
+                        <div className="space-y-4 mt-4">
                           <div>
-                            <p className="text-muted-foreground text-xs uppercase font-semibold">End Date</p>
-                            <p className="font-medium">{project.endDate ? new Date(project.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                            <p className="text-xs font-semibold uppercase text-muted-foreground mb-3 flex items-center gap-2"><Users className="h-3 w-3" /> Vendors</p>
+                            <div className="flex flex-wrap gap-2">
+                              {project.vendors && project.vendors.length > 0 ? (
+                                project.vendors.map((vendor: string) => (
+                                  <Badge key={vendor} variant="secondary">{vendor}</Badge>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No vendors assigned</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </div>
 
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/30 p-4 rounded-lg">
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold uppercase text-muted-foreground">Team Members ({project.team?.length || 0})</p>
-                          <div className="flex flex-wrap gap-2">
-                            {project.team && project.team.length > 0 ? (
-                              project.team.map((memberId: string) => {
-                                const emp = employees.find(e => e.id === memberId);
-                                return (
-                                  <Badge key={memberId} variant="outline" className="flex flex-col items-start px-2 py-1">
-                                    <span className="text-[11px] font-bold">{emp?.name || memberId}</span>
-                                    <span className="text-[9px] text-muted-foreground">{emp?.designation}</span>
-                                  </Badge>
-                                );
-                              })
-                            ) : (
-                              <span className="text-xs text-muted-foreground">No team members</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div>
-                          <p className="text-xs font-semibold uppercase text-muted-foreground mb-3 flex items-center gap-2"><Users className="h-3 w-3" /> Vendors</p>
-                          <div className="flex flex-wrap gap-2">
-                            {project.vendors && project.vendors.length > 0 ? (
-                              project.vendors.map((vendor: string) => (
-                                <Badge key={vendor} variant="secondary">{vendor}</Badge>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground">No vendors assigned</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="border-t pt-4">
-                          <p className="text-xs font-semibold uppercase text-muted-foreground mb-3 flex items-center gap-2"><Upload className="h-3 w-3" /> Project Files</p>
-                          <div className="space-y-2">
+                          <div className="border-t pt-4">
+                            <p className="text-xs font-semibold uppercase text-muted-foreground mb-3 flex items-center gap-2"><Upload className="h-3 w-3" /> Project Files</p>
                             <div className="space-y-2">
+                              {/* Upload option */}
+                              <input
+                                type="file"
+                                onChange={e => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    handleFileUpload(project.id, e.target.files[0]);
+                                  }
+                                }}
+                                className="mb-2"
+                              />
                               {projectFiles[project.id]?.length > 0 ? (
                                 projectFiles[project.id].map((file: any) => (
                                   <div key={file.id} className="flex items-center gap-2 p-2 rounded border bg-muted/20">
                                     <FileIcon className="h-4 w-4 text-muted-foreground" />
-
-                                    {/* Clickable to open */}
                                     <a
-                                      href={file.url} // MUST be a full URL
+                                      href={file.url}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="text-sm flex-1 truncate underline hover:text-primary"
                                     >
                                       {file.fileName}
                                     </a>
-
                                     <span className="text-xs text-muted-foreground">{(file.fileSize / 1024).toFixed(1)} KB</span>
-
                                     <div className="flex gap-1">
-                                      {/* Download button */}
                                       <a
-                                        href={file.url} // MUST be a full URL
+                                        href={file.url}
                                         download={file.fileName}
                                         className="text-xs px-2 py-0.5 border rounded hover:bg-muted/20"
                                       >
                                         Download
                                       </a>
-
-                                      {/* Cancel/Delete button with confirmation */}
                                       <button
                                         onClick={async () => {
                                           if (confirm(`Are you sure you want to delete ${file.fileName}?`)) {
@@ -1162,35 +1306,47 @@ export default function Projects() {
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Action Buttons */}
-                      <div className="flex gap-3 pt-4 border-t border-muted/40">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenEdit(project)}
-                          className="flex items-center gap-2"
-                        >
-                          <Edit className="h-4 w-4" />
-                          Edit Project
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            localStorage.setItem("selectedProjectId", String(project.id));
-                            setLocation('/keysteps');
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                          Go to Key Steps
-                        </Button>
+                        {/* Action Buttons: Edit, Go to Key Steps, Delete */}
+                        <div className="flex gap-3 pt-4 border-t border-muted/40">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenEdit(project)}
+                            className="flex items-center gap-2"
+                          >
+                            <Edit className="h-4 w-4" />
+                            Edit Project
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              localStorage.setItem("selectedProjectId", String(project.id));
+                              setLocation('/keysteps');
+                            }}
+                            className="flex items-center gap-2"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Go to Key Steps
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              setDeleteConfirmOpen(true);
+                              setProjectToDelete(project.id);
+                            }}
+                            className="flex items-center gap-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete Project
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
+                    </CardContent>
+                  )}
+                </Card>
+              </React.Fragment>
             );
           })
         )}

@@ -99,15 +99,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeCode, password }),
       });
-      
+
       console.log("[LOGIN] Response status:", res.status, res.ok);
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
         console.error("[LOGIN] Login failed:", errorData);
         throw new Error(errorData.error || `Login failed (${res.status})`);
       }
-      
+
       const data = await res.json();
       console.log("[LOGIN] Success! User:", data.user);
       localStorage.setItem("knockturn_token", data.token);
@@ -240,7 +240,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [displayUser, setDisplayUser] = useState(user);
 
   // Refresh user profile from server
@@ -282,19 +281,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleGlobalSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      const query = searchQuery.toLowerCase().trim();
-      const routeMap: Record<string, string> = {
-        "dashboard": "/", "project": "/projects", "projects": "/projects",
-        "step": "/keysteps", "steps": "/keysteps", "task": "/tasks", "tasks": "/tasks"
-      };
-      if (routeMap[query]) {
-        setLocation(routeMap[query]);
-        setSearchQuery("");
-      }
-    }
-  };
 
   if (!user) return <>{children}</>;
 
@@ -311,17 +297,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <SheetContent side="left" className="p-0 w-64"><Sidebar /></SheetContent>
             </Sheet>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(!sidebarOpen)} className="hidden lg:flex"><Menu /></Button>
-
-            <div className="relative hidden w-96 md:block">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search pages..."
-                className="bg-muted/50 pl-9"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleGlobalSearch}
-              />
-            </div>
           </div>
 
           <div className="flex items-center gap-4">

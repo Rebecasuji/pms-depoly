@@ -30,6 +30,7 @@ import {
   Briefcase,
   Calendar,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -60,6 +61,8 @@ export default function Dashboard() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [expandedSections, setExpandedSections] = useState({ analytics: true });
   const [newProjectDialog, setNewProjectDialog] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<any>(null);
 
   const [newProject, setNewProject] = useState({
     title: "",
@@ -201,6 +204,27 @@ export default function Dashboard() {
     } catch (err) {
       console.error(err);
       alert("Failed to create project");
+    }
+  };
+
+  // ---------------- DELETE PROJECT ----------------
+
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return;
+
+    try {
+      const response = await apiFetch(`/api/projects/${projectToDelete.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) throw new Error("Failed to delete project");
+
+      await fetchProjects();
+      setDeleteDialogOpen(false);
+      setProjectToDelete(null);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete project");
     }
   };
 
@@ -626,11 +650,12 @@ export default function Dashboard() {
                   <th className="px-6 py-3 text-xs font-bold">Name</th>
                   <th className="px-6 py-3 text-xs font-bold">Dates</th>
                   <th className="px-6 py-3 text-xs font-bold">Progress</th>
+                  <th className="px-6 py-3 text-xs font-bold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {projects.map((project) => (
-                  <tr key={project.id}>
+                  <tr key={project.id} className="hover:bg-muted/30">
                     <td className="px-6 py-4 font-semibold text-sm">
                       {project.title}
                     </td>
@@ -639,6 +664,19 @@ export default function Dashboard() {
                     </td>
                     <td className="px-6 py-4 font-bold text-primary">
                       {project.progress || 0}%
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          setProjectToDelete(project);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -733,6 +771,39 @@ export default function Dashboard() {
           </CardContent>
         )}
       </Card>
+
+      {/* DELETE CONFIRMATION DIALOG */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Project</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this project? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {projectToDelete && (
+            <p className="text-sm">
+              Project: <span className="font-bold">{projectToDelete.title}</span>
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setProjectToDelete(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteProject}>
+              Delete Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

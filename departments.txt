@@ -1,0 +1,102 @@
+﻿Employees with Departments: [
+  {
+    id: '0c1b6a73-de68-4f21-bb4f-fe0bc8af59dd',
+    name: 'MOHAN RAJ C',
+    department: 'Finance'
+  },
+  {
+    id: 'c8e210f3-2642-429a-838d-c07d859f6a9b',
+    name: 'ZAMEELA BEGAM N',
+    department: 'Finance'
+  },
+  {
+    id: '03ecbdf8-6b17-4fc5-b191-6f38aac45c0e',
+    name: 'KAALIPUSHPA R',
+    department: 'General'
+  },
+  {
+    id: 'c39c9f34-6c58-4314-8a29-c0d863d65498',
+    name: 'FAREETHA',
+    department: 'General'
+  },
+  {
+    id: '4e11de51-d4e0-41d6-be2b-46764bea919e',
+    name: 'FAREETHA',
+    department: 'General'
+  },
+  {
+    id: 'dcf8f955-b5fe-4225-a4d2-b8aedf61ba2f',
+    name: 'P PUSHPA',
+    department: 'Hr'
+  },
+  {
+    id: 'd9de3fcf-f39d-4a6e-924b-aea210d06180',
+    name: 'Samyuktha S',
+    department: 'Hr'
+  },
+  {
+    id: 'f55426e9-7043-4c63-bf3c-bf746bba2435',
+    name: 'S.NAVEEN KUMAR',
+    department: 'IT Support'
+  },
+  {
+    id: 'b0bb5b3e-0885-4d99-b545-dc3c481f1162',
+    name: 'UMAR FAROOQUE',
+    department: 'Operation'
+  },
+  {
+    id: 'f1a54d21-49b7-405d-8e3e-15757b7d9e76',
+    name: 'SIVARAM C',
+    department: 'Operation'
+  },
+  {
+    id: '028b2432-7cfb-43b1-b64c-09123985eb90',
+    name: 'RANJITH',
+    department: 'Operation'
+  },
+  {
+    id: 'aa95878f-db25-491b-aaeb-9a5081a5da85',
+    name: 'SAM',
+    department: 'Operation'
+  },
+  {
+    id: '66277798-0acf-4d26-b3ce-2a5b017521f0',
+    name: 'KIRUBA',
+    department: 'Presales'
+  },
+  {
+    id: '21282df5-499b-4548-86c7-8d0d78f85cfd',
+    name: 'YUVARAJ S',
+    department: 'Purchase'
+  },
+  {
+    id: '6ca9e831-7c61-4b99-bf93-1f6f5e1e2dd3',
+    name: 'ARUN KUMAR V',
+    department: 'Purchase'
+  },
+  {
+    id: '381c4de8-b4ba-4676-a0a8-3aa3935d4a78',
+    name: 'Rebecasuji.A',
+    department: 'Software developer'
+  },
+  {
+    id: '61026d81-84f4-4bb7-9d17-7d088fe152f3',
+    name: 'DurgaDevi E',
+    department: 'Software developer'
+  },
+  {
+    id: 'b4d75bf8-8aaa-4133-8086-974e1f447e50',
+    name: 'D K JYOTHSNA PRIYA',
+    department: 'Software developer'
+  }
+]
+Department Counts: {
+  Finance: 2,
+  General: 3,
+  Hr: 2,
+  'IT Support': 1,
+  Operation: 4,
+  Presales: 1,
+  Purchase: 2,
+  'Software developer': 3
+}
