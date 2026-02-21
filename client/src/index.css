@@ -162,3 +162,7 @@
     @apply font-display tracking-tight;
   }
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/apiClient";
+import { formatDate } from "@/lib/utils";
 import {
   CheckCircle2,
   Layers,
@@ -340,8 +341,8 @@ export default function Dashboard() {
                   html += `
   <tr>
     <td>${p.title}</td>
-    <td>${p.startDate}</td>
-    <td>${p.endDate}</td>
+    <td>${formatDate(p.startDate)}</td>
+    <td>${formatDate(p.endDate)}</td>
     <td>${p.progress || 0}%</td>
     <td>${projectTasks.length}</td>
     <td>${projectKeySteps.length}</td>
@@ -620,7 +621,7 @@ export default function Dashboard() {
             {projects.slice(0, 3).map((p) => (
               <div key={p.id} className="text-xs">
                 <span className="font-medium">{p.title}</span>
-                <div className="text-muted-foreground">{p.endDate}</div>
+                <div className="text-muted-foreground">{formatDate(p.endDate)}</div>
               </div>
             ))}
           </CardContent>
@@ -660,7 +661,7 @@ export default function Dashboard() {
                       {project.title}
                     </td>
                     <td className="px-6 py-4 text-xs text-muted-foreground">
-                      {project.startDate} — {project.endDate}
+                      {formatDate(project.startDate)} — {formatDate(project.endDate)}
                     </td>
                     <td className="px-6 py-4 font-bold text-primary">
                       {project.progress || 0}%

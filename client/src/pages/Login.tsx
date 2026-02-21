@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// Removed Checkbox (Remember me) — not used anymore
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
+import { apiFetch } from "@/lib/apiClient";
 import companyLogo from "@/pages/logo.jpg";
 
 export default function Login() {
@@ -29,6 +30,7 @@ export default function Login() {
   // Forgot password modal state
   const [openForgot, setOpenForgot] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   const [employeeCode, setEmployeeCode] = useState("");
   const [password, setPassword] = useState("");
@@ -36,6 +38,18 @@ export default function Login() {
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // Remember me logic
+  useEffect(() => {
+    const remembered = localStorage.getItem("remembered_emp_code");
+    const rememberedPass = localStorage.getItem("remembered_password");
+    if (remembered) {
+      setEmployeeCode(remembered);
+      if (rememberedPass) setPassword(rememberedPass);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +66,16 @@ export default function Login() {
     }
 
     setIsLoading(true);
+
+    // Handle "Remember Me"
+    if (rememberMe) {
+      localStorage.setItem("remembered_emp_code", employeeCode);
+      localStorage.setItem("remembered_password", password);
+    } else {
+      localStorage.removeItem("remembered_emp_code");
+      localStorage.removeItem("remembered_password");
+    }
+
     login(employeeCode, password)
       .then(() => {
         console.log("[LOGIN] Login successful!");
@@ -65,26 +89,46 @@ export default function Login() {
       });
   };
 
-  const handlePasswordReset = () => {
+  const handlePasswordReset = async () => {
+    setResetError("");
     if (!resetEmployeeCode || !newPassword || !confirmPassword) {
-      alert("Please fill all fields");
+      setResetError("Please fill all fields");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      alert("Passwords do not match");
+      setResetError("Passwords do not match");
       return;
     }
 
     setResetLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await apiFetch("/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeCode: resetEmployeeCode,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Failed to reset password" }));
+        throw new Error(errorData.error || "Failed to reset password");
+      }
+
       alert("Password updated successfully");
-      setResetLoading(false);
       setOpenForgot(false);
       setResetEmployeeCode("");
       setNewPassword("");
       setConfirmPassword("");
-    }, 1000);
+    } catch (err: any) {
+      console.error("[FORGOT-PASSWORD] Error:", err);
+      setResetError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   return (
@@ -153,7 +197,21 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Remember me removed */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(checked === true)}
+                />
+                <label
+                  htmlFor="remember"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Remember me
+                </label>
+              </div>
+            </div>
 
             {errorMessage && (
               <div className="rounded-md bg-red-50 border border-red-200 p-3">
@@ -258,6 +316,12 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            {resetError && (
+              <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                <p className="text-sm text-red-700">{resetError}</p>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

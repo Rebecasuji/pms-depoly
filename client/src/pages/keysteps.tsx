@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiFetch } from "@/lib/apiClient";
+import { formatDate } from "@/lib/utils";
 
 interface KeyStep {
   id: string;
@@ -258,7 +259,7 @@ export default function KeySteps() {
 
       // reset + close
       resetNewTitles(5);
-      setNewStep({ header: "", phase: 1, status: "pending", startDate: "", endDate: "" });
+      setNewStep({ header: "", projectId: selectedProjectId || "", phase: 1, status: "pending", startDate: "", endDate: "" });
       setOpenDialog(false);
     } catch (err) {
       console.error(err);
@@ -830,11 +831,11 @@ export default function KeySteps() {
                     </td>
 
                     <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
-                      {step.startDate ? new Date(step.startDate).toLocaleDateString() : "N/A"}
+                      {formatDate(step.startDate)}
                     </td>
 
                     <td className="px-3 py-3 text-center text-sm text-slate-600 border-r">
-                      {step.endDate ? new Date(step.endDate).toLocaleDateString() : "N/A"}
+                      {formatDate(step.endDate)}
                     </td>
 
                     <td className="px-3 py-3 text-center border-r">
@@ -933,11 +934,11 @@ export default function KeySteps() {
                             </td>
 
                             <td className="px-3 py-2 text-center text-sm text-slate-600 border-r">
-                              {child.startDate ? new Date(child.startDate).toLocaleDateString() : "N/A"}
+                              {formatDate(child.startDate)}
                             </td>
 
                             <td className="px-3 py-2 text-center text-sm text-slate-600 border-r">
-                              {child.endDate ? new Date(child.endDate).toLocaleDateString() : "N/A"}
+                              {formatDate(child.endDate)}
                             </td>
 
                             <td className="px-3 py-2 text-center border-r">

@@ -72,6 +72,7 @@ interface KeyStep {
 // --- Auth Context ---
 const AuthContext = createContext<{
   user: any;
+  isLoading: boolean;
   login: (employeeCode?: string, password?: string) => Promise<void>;
   logout: () => void;
 } | null>(null);
@@ -79,16 +80,34 @@ const AuthContext = createContext<{
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [, setLocation] = useLocation();
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in
     const token = localStorage.getItem("knockturn_token");
     if (!token) {
-      console.log("[AUTH] No token found, redirecting to login");
-      setLocation("/login");
+      console.log("[AUTH] No token found");
+      setIsLoading(false);
+      return;
     }
-    setIsInitialized(true);
+    // Token exists — restore session by fetching current user
+    apiFetch("/api/me")
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          console.log("[AUTH] Session restored for:", data.user?.name);
+          setUser(data.user);
+        } else {
+          console.warn("[AUTH] Token invalid, clearing");
+          localStorage.removeItem("knockturn_token");
+        }
+      })
+      .catch(() => {
+        console.warn("[AUTH] Failed to restore session");
+        localStorage.removeItem("knockturn_token");
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   const login = async (employeeCode?: string, password?: string) => {
@@ -132,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

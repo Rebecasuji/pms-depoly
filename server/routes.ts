@@ -7,6 +7,8 @@ import { and, sql } from "drizzle-orm";
 
 import { db, pool } from "./db.ts";
 import { DataValidator } from "../shared/dataValidator.ts";
+import { storage as storageHelper } from "./storage.ts";
+import { sendTaskAssignmentEmail, sendSubtaskAssignmentEmail, sendProjectCompletionEmail } from "./email.ts";
 import {
   users,
   sessions,
@@ -191,6 +193,45 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Login error:", err);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // FORGOT PASSWORD - reset password using employee code
+  app.post("/api/forgot-password", async (req, res) => {
+    try {
+      const { employeeCode, newPassword, confirmPassword } = req.body;
+      console.log("[FORGOT-PASSWORD] Reset request for employeeCode:", employeeCode);
+
+      if (!employeeCode || !newPassword || !confirmPassword) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match" });
+      }
+
+      // Lookup employee
+      const empRes = await pool.query('SELECT * FROM employees WHERE emp_code = $1 LIMIT 1', [employeeCode]);
+      const employee = empRes.rows[0];
+      if (!employee) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+
+      // Find user
+      const userRes = await pool.query('SELECT * FROM users WHERE employee_id = $1 LIMIT 1', [employee.id]);
+      const user = userRes.rows[0];
+      if (!user) {
+        return res.status(404).json({ error: "User record not found for this employee" });
+      }
+
+      // Update password (using plaintext for consistency)
+      await pool.query('UPDATE users SET password = $1 WHERE id = $2', [newPassword, user.id]);
+
+      console.log("[FORGOT-PASSWORD] Password updated successfully for employee:", employeeCode);
+      res.json({ success: true, message: "Password updated successfully" });
+    } catch (err) {
+      console.error("Forgot password error:", err);
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 
@@ -529,6 +570,9 @@ export async function registerRoutes(
   app.put("/api/projects/:id", requireAuth, async (req: any, res) => {
     const { id } = req.params;
     try {
+      // Fetch current project state before update to detect status transitions
+      const oldProject = await storageHelper.getProject(id);
+
       const {
         title,
         projectCode,
@@ -593,51 +637,139 @@ export async function registerRoutes(
 
       if (!updated) return res.status(404).json({ error: "Project not found" });
 
-      // Update related records
-      const insertPromises: Promise<any>[] = [];
+      // Update related records - ONLY if provided in the request
+      // This prevents accidental wiping of data when performing partial updates (like status changes)
 
-      // Always clear and recreate relations to ensure sync
-      await Promise.all([
-        db.delete(projectDepartments).where(eq(projectDepartments.projectId, id)),
-        db.delete(projectTeamMembers).where(eq(projectTeamMembers.projectId, id)),
-        db.delete(projectVendors).where(eq(projectVendors.projectId, id)),
-      ]);
+      const updateDepartments = req.body.department !== undefined;
+      const updateTeam = req.body.team !== undefined;
+      const updateVendors = req.body.vendors !== undefined;
 
-      if (Array.isArray(department) && department.length > 0) {
-        insertPromises.push(
-          db.insert(projectDepartments).values(
-            department.filter(d => d?.trim()).map((dept: string) => ({
+      if (updateDepartments) {
+        await db.delete(projectDepartments).where(eq(projectDepartments.projectId, id));
+        const deptArray = Array.isArray(req.body.department) ? req.body.department : [];
+        if (deptArray.length > 0) {
+          await db.insert(projectDepartments).values(
+            deptArray.filter((d: any) => d?.trim()).map((dept: string) => ({
               projectId: id,
               department: normalizeDept(dept),
             }))
-          )
-        );
+          );
+        }
       }
 
-      if (Array.isArray(team) && team.length > 0) {
-        insertPromises.push(
-          db.insert(projectTeamMembers).values(
-            team.filter(t => t?.trim()).map((empId: string) => ({
+      if (updateTeam) {
+        await db.delete(projectTeamMembers).where(eq(projectTeamMembers.projectId, id));
+        const teamArray = Array.isArray(req.body.team) ? req.body.team : [];
+        if (teamArray.length > 0) {
+          await db.insert(projectTeamMembers).values(
+            teamArray.filter((t: any) => t?.trim()).map((empId: string) => ({
               projectId: id,
               employeeId: empId,
             }))
-          )
-        );
+          );
+        }
       }
 
-      if (Array.isArray(vendorList) && vendorList.length > 0) {
-        insertPromises.push(
-          db.insert(projectVendors).values(
-            vendorList.filter(v => v?.trim()).map((vendor: string) => ({
+      if (updateVendors) {
+        await db.delete(projectVendors).where(eq(projectVendors.projectId, id));
+        const vendorsArray = Array.isArray(req.body.vendors) ? req.body.vendors : [];
+        if (vendorsArray.length > 0) {
+          await db.insert(projectVendors).values(
+            vendorsArray.filter((v: any) => v?.trim()).map((vendor: string) => ({
               projectId: id,
               vendorName: vendor,
             }))
-          )
-        );
+          );
+        }
       }
 
-      if (insertPromises.length > 0) {
-        await Promise.all(insertPromises);
+      // --- ADMIN NOTIFICATION LOGIC ---
+      // Triggered only when status transitions TO 'Completed'
+      if (updated && updated.status === "Completed" && oldProject?.status !== "Completed") {
+        try {
+          const adminEmails = await storageHelper.getAdminEmails();
+          if (adminEmails.length > 0) {
+            // Find the original assigner (creator of project)
+            // This ensures "Assigned By" shows the person who started the work (e.g. DurgaDevi E)
+            let originalAssignerName = "System Administrator";
+
+            if (updated.createdByEmployeeId) {
+              const creator = await storageHelper.getEmployee(updated.createdByEmployeeId);
+              if (creator) {
+                originalAssignerName = creator.name;
+                console.log(`📧 Project Completion Email: Found creator from createdByEmployeeId: ${originalAssignerName}`);
+              }
+            } else {
+              // Fallback: Use task assigner or current user if no creator ID
+              const taskAssigners = await db
+                .select({ assignerName: employees.name })
+                .from(projectTasks)
+                .innerJoin(employees, eq(projectTasks.assignerId, employees.id))
+                .where(eq(projectTasks.projectId, id));
+
+              const firstTaskAssigner = taskAssigners[0]?.assignerName;
+              console.log(`📧 Project Completion Email: Fallback search found ${taskAssigners.length} task assigners. First one: ${firstTaskAssigner || "None"}`);
+
+              originalAssignerName = firstTaskAssigner || req.employee?.name || "System Administrator";
+            }
+            console.log(`📧 Project Completion Email: Final Assigned By will be: ${originalAssignerName}`);
+
+            // Find first team member details for the email "Employee Name" field
+            // Fetch directly from DB to ensure we get the actual assigned personnel (e.g. DurgaDevi E)
+            let firstMemberName = "Team Member";
+            let firstMemberCode = "N/A";
+
+            // (1) Check Project-level Team Members
+            const dbTeamMembers = await db
+              .select({
+                name: employees.name,
+                code: employees.empCode
+              })
+              .from(projectTeamMembers)
+              .innerJoin(employees, eq(projectTeamMembers.employeeId, employees.id))
+              .where(eq(projectTeamMembers.projectId, id))
+              .limit(1);
+
+            if (dbTeamMembers.length > 0) {
+              firstMemberName = dbTeamMembers[0].name;
+              firstMemberCode = dbTeamMembers[0].code || "N/A";
+            } else {
+              // (2) FALLBACK: If project-level team is empty, check Task-level Assignees
+              // This handles projects where users are assigned to tasks but not the project team
+              const dbTaskAssignees = await db
+                .select({
+                  name: employees.name,
+                  code: employees.empCode
+                })
+                .from(taskMembers)
+                .innerJoin(projectTasks, eq(taskMembers.taskId, projectTasks.id))
+                .innerJoin(employees, eq(taskMembers.employeeId, employees.id))
+                .where(eq(projectTasks.projectId, id))
+                .limit(1);
+
+              if (dbTaskAssignees.length > 0) {
+                firstMemberName = dbTaskAssignees[0].name;
+                firstMemberCode = dbTaskAssignees[0].code || "N/A";
+              }
+            }
+
+            for (const adminEmail of adminEmails) {
+              await sendProjectCompletionEmail(adminEmail, {
+                title: updated.title,
+                projectCode: updated.projectCode,
+                clientName: updated.clientName || 'N/A',
+                startDate: updated.startDate ? new Date(updated.startDate).toLocaleDateString() : 'N/A',
+                endDate: updated.endDate ? new Date(updated.endDate).toLocaleDateString() : 'N/A',
+                progress: updated.progress,
+                assigner: originalAssignerName,
+                employeeName: firstMemberName,
+                employeeCode: firstMemberCode
+              });
+            }
+          }
+        } catch (adminNotifyErr) {
+          console.warn("[ADMIN NOTIFY] Failed to dispatch project completion alerts:", adminNotifyErr);
+        }
       }
 
       const result = {
@@ -1144,6 +1276,83 @@ export async function registerRoutes(
       }
 
       console.log("✅ Task created successfully with all related data");
+
+      // --- EMAIL NOTIFICATION LOGIC ---
+      try {
+        const assigner = await storageHelper.getEmployee(finalAssignerId);
+        const project = await storageHelper.getProject(projectId);
+
+        if (Array.isArray(memberList) && memberList.length > 0) {
+          for (const empId of memberList) {
+            const employee = await storageHelper.getEmployee(empId);
+            if (employee && employee.email) {
+              const [userRow] = await db.select().from(users).where(eq(users.employeeId, empId));
+              const role = userRow?.role || 'EMPLOYEE';
+
+              await sendTaskAssignmentEmail(
+                employee.email,
+                {
+                  name: employee.name,
+                  code: employee.empCode || 'N/A',
+                  project: project?.title || 'Unknown Project',
+                  assigner: assigner?.name || 'Admin',
+                  dueDate: formattedEndDate || 'Not Set',
+                },
+                {
+                  name: taskName,
+                  priority: priority || 'medium',
+                  startDate: formattedStartDate || 'N/A',
+                  endDate: formattedEndDate || 'N/A',
+                  status: status || 'pending',
+                },
+                role.toLowerCase() as any
+              );
+            }
+          }
+        }
+
+        // --- SUBTASK EMAIL NOTIFICATIONS ---
+        if (Array.isArray(incomingSubtasks) && incomingSubtasks.length > 0) {
+          for (const st of incomingSubtasks) {
+            const stMembers = Array.isArray(st.assignedTo)
+              ? st.assignedTo
+              : (typeof st.assignedTo === 'string' ? [st.assignedTo] : []);
+
+            if (stMembers.length > 0) {
+              for (const empId of stMembers) {
+                const employee = await storageHelper.getEmployee(empId);
+                if (employee && employee.email) {
+                  const [userRow] = await db.select().from(users).where(eq(users.employeeId, empId));
+                  const role = userRow?.role || 'EMPLOYEE';
+
+                  await sendSubtaskAssignmentEmail(
+                    employee.email,
+                    {
+                      name: employee.name,
+                      code: employee.empCode || 'N/A',
+                      project: project?.title || 'Unknown Project',
+                      assigner: assigner?.name || 'Admin',
+                      dueDate: st.endDate || 'Not Set',
+                    },
+                    {
+                      name: st.title,
+                      priority: priority || 'medium',
+                      startDate: st.startDate || 'N/A',
+                      endDate: st.endDate || 'N/A',
+                      status: 'pending',
+                      parentTaskName: taskName
+                    },
+                    role.toLowerCase() as any
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[POST /api/tasks] Notification failure:", err);
+      }
+
       res.json(task);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1160,6 +1369,10 @@ export async function registerRoutes(
   app.put("/api/tasks/:id", requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
+
+      // Fetch current members to identify newly added ones later
+      const oldMemberIds = await storageHelper.getTaskMembers(id);
+
       const {
         taskName,
         description,
@@ -1258,7 +1471,87 @@ export async function registerRoutes(
         }
       }
 
+      try {
+        const assigner = await storageHelper.getEmployee(finalAssignerId);
+        const project = await storageHelper.getProject(updateData.projectId || updated.projectId);
+
+        // Identify newly added members
+        const newMembers = (memberList || []).filter((id: string) => !oldMemberIds.includes(id));
+
+        if (newMembers.length > 0) {
+
+          for (const empId of newMembers) {
+            const employee = await storageHelper.getEmployee(empId);
+            if (employee && employee.email) {
+              const [userRow] = await db.select().from(users).where(eq(users.employeeId, empId));
+              const role = userRow?.role || 'EMPLOYEE';
+
+              await sendTaskAssignmentEmail(
+                employee.email,
+                {
+                  name: employee.name,
+                  code: employee.empCode || 'N/A',
+                  project: project?.title || 'Unknown Project',
+                  assigner: assigner?.name || 'Admin',
+                  dueDate: updateData.endDate || 'Not Set',
+                },
+                {
+                  name: taskName,
+                  priority: updateData.priority || 'medium',
+                  startDate: updateData.startDate || 'N/A',
+                  endDate: updateData.endDate || 'N/A',
+                  status: updateData.status || 'pending',
+                },
+                role.toLowerCase() as any
+              );
+            }
+          }
+        }
+
+        // --- SUBTASK EMAIL NOTIFICATIONS ---
+        if (Array.isArray(incomingSubtasks) && incomingSubtasks.length > 0) {
+          for (const st of incomingSubtasks) {
+            const stMembers = Array.isArray(st.assignedTo)
+              ? st.assignedTo
+              : (typeof st.assignedTo === 'string' ? [st.assignedTo] : []);
+
+            if (stMembers.length > 0) {
+              for (const empId of stMembers) {
+                const employee = await storageHelper.getEmployee(empId);
+                if (employee && employee.email) {
+                  const [userRow] = await db.select().from(users).where(eq(users.employeeId, empId));
+                  const role = userRow?.role || 'EMPLOYEE';
+
+                  await sendSubtaskAssignmentEmail(
+                    employee.email,
+                    {
+                      name: employee.name,
+                      code: employee.empCode || 'N/A',
+                      project: project?.title || 'Unknown Project',
+                      assigner: assigner?.name || 'Admin',
+                      dueDate: st.endDate || 'Not Set',
+                    },
+                    {
+                      name: st.title,
+                      priority: updateData.priority || 'medium',
+                      startDate: st.startDate || 'N/A',
+                      endDate: st.endDate || 'N/A',
+                      status: 'pending',
+                      parentTaskName: taskName || updated.taskName
+                    },
+                    role.toLowerCase() as any
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[PUT /api/tasks/:id] Notification failure:", err);
+      }
+
       res.json(updated);
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error("Task update error:", errorMessage);
@@ -1545,88 +1838,11 @@ export async function registerRoutes(
     }
   });
 
-  // BULK FETCH ALL TASKS (for authorized projects)
+  // BULK FETCH ALL TASKS (all tasks for all authenticated users)
   app.get("/api/tasks/bulk", requireAuth, async (req: any, res) => {
     try {
-      const requestingEmployeeId = req.employee?.id || null;
-      const isAdmin = req.user?.role === "ADMIN";
-
-      // First, get all projects the user can access
-      let projectIds: string[] = [];
-
-      if (isAdmin) {
-        const allProjects = await db.select({ id: projects.id }).from(projects);
-        projectIds = allProjects.map((p) => p.id);
-      } else {
-        if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
-
-        const membership = await db
-          .select({ projectId: projectTeamMembers.projectId })
-          .from(projectTeamMembers)
-          .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
-
-        projectIds = membership.map((m) => m.projectId);
-      }
-
-      // If user has no project memberships, fall back to tasks explicitly assigned to them
-      if (projectIds.length === 0) {
-        if (!requestingEmployeeId) return res.json([]);
-
-        // find tasks where the user is an assigned member
-        const assignedRows = await db
-          .select({ taskId: taskMembers.taskId })
-          .from(taskMembers)
-          .where(eq(taskMembers.employeeId, requestingEmployeeId));
-
-        const assignedTaskIds = assignedRows.map(r => r.taskId);
-        if (assignedTaskIds.length === 0) return res.json([]);
-
-        const tasks = await db
-          .select()
-          .from(projectTasks)
-          .where(inArray(projectTasks.id, assignedTaskIds));
-
-        // proceed to build members/subtasks below (reuse logic)
-        const taskIds = tasks.map((t) => t.id);
-
-        const [members, subs] = await Promise.all([
-          db
-            .select()
-            .from(taskMembers)
-            .where(inArray(taskMembers.taskId, taskIds)),
-          db
-            .select()
-            .from(subtasks)
-            .where(inArray(subtasks.taskId, taskIds)),
-        ]);
-
-        const memberMap = new Map<string, string[]>();
-        const subtaskMap = new Map<string, any[]>();
-
-        members.forEach((m) => {
-          if (!memberMap.has(m.taskId)) memberMap.set(m.taskId, []);
-          memberMap.get(m.taskId)!.push(m.employeeId);
-        });
-
-        subs.forEach((s) => {
-          if (!subtaskMap.has(s.taskId)) subtaskMap.set(s.taskId, []);
-          subtaskMap.get(s.taskId)!.push(s);
-        });
-
-        const result = tasks.map((task) => ({
-          ...task,
-          assignedMembers: memberMap.get(task.id) || [],
-          subtasks: subtaskMap.get(task.id) || [],
-        }));
-
-        return res.json(result);
-      }
-
-      // Now get all tasks for these projects
-      const tasks = await db
-        .select()
-        .from(projectTasks)
-        .where(inArray(projectTasks.projectId, projectIds));
+      // Fetch ALL tasks from all projects for any authenticated user
+      const tasks = await db.select().from(projectTasks);
 
       if (!tasks.length) return res.json([]);
 
@@ -1673,36 +1889,13 @@ export async function registerRoutes(
     }
   });
 
-  // BULK FETCH ALL KEY STEPS (for authorized projects)
+  // BULK FETCH ALL KEY STEPS (all key steps for all authenticated users)
   app.get("/api/keysteps/bulk", requireAuth, async (req: any, res) => {
     try {
-      const requestingEmployeeId = req.employee?.id || null;
-      const isAdmin = req.user?.role === "ADMIN";
-
-      // First, get all projects the user can access
-      let projectIds: string[] = [];
-
-      if (isAdmin) {
-        const allProjects = await db.select({ id: projects.id }).from(projects);
-        projectIds = allProjects.map((p) => p.id);
-      } else {
-        if (!requestingEmployeeId) return res.status(403).json({ error: "Forbidden" });
-
-        const membership = await db
-          .select({ projectId: projectTeamMembers.projectId })
-          .from(projectTeamMembers)
-          .where(eq(projectTeamMembers.employeeId, requestingEmployeeId));
-
-        projectIds = membership.map((m) => m.projectId);
-      }
-
-      if (projectIds.length === 0) return res.json([]);
-
-      // Get all keysteps for these projects
+      // Fetch ALL key steps from all projects for any authenticated user
       const steps = await db
         .select()
         .from(keySteps)
-        .where(inArray(keySteps.projectId, projectIds))
         .orderBy(keySteps.createdAt);
 
       res.json(steps);

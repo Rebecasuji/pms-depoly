@@ -11,6 +11,9 @@ import {
   ChevronDown,
   CheckCircle2,
   Circle,
+  X,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn, formatDate } from "@/lib/utils";
 
 /* ================= TYPES ================= */
 
@@ -81,13 +94,26 @@ export default function Tasks() {
   const [keySteps, setKeySteps] = useState<any[]>([]);
   const [clients, setClients] = useState<string[]>([]);
 
-  // Filters / UI state
-  const [projectId, setProjectId] = useState("");
-  const [selectedKeyStepId, setSelectedKeyStepId] = useState<string>("");
+  // Filters / UI state — lazy-init from localStorage so navigation from KeySteps works
+  const [projectId, setProjectId] = useState<string>(() => {
+    const saved = localStorage.getItem("selectedProjectId");
+    if (saved) { localStorage.removeItem("selectedProjectId"); return saved; }
+    return "";
+  });
+  const [selectedKeyStepId, setSelectedKeyStepId] = useState<string>(() => {
+    const saved = localStorage.getItem("selectedKeyStepId");
+    if (saved) { localStorage.removeItem("selectedKeyStepId"); return saved; }
+    return "";
+  });
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [projectPopoverOpen, setProjectPopoverOpen] = useState(false);
+  const [clientPopoverOpen, setClientPopoverOpen] = useState(false);
+  const [deptPopoverOpen, setDeptPopoverOpen] = useState(false);
+  const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
 
   // Multi-select state for tasks
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -244,12 +270,6 @@ export default function Tasks() {
         setClients(Array.from(clientSet));
       })
       .catch(() => setProjects([]));
-
-    const savedKey = localStorage.getItem("selectedKeyStepId");
-    if (savedKey) {
-      setSelectedKeyStepId(savedKey);
-      localStorage.removeItem("selectedKeyStepId");
-    }
   }, []);
 
   /* ================= LOAD PROJECT-SPECIFIC DATA ================= */
@@ -266,7 +286,7 @@ export default function Tasks() {
         .catch(() => setTasks([]));
 
       setKeySteps([]);
-      setSelectedKeyStepId("");
+      // NOTE: do NOT clear selectedKeyStepId here — it may have been set from navigation
       return;
     }
 
@@ -306,7 +326,11 @@ export default function Tasks() {
     const matchesDepartment = departmentFilter === "all" ||
       projectDepts.some((d: string) => normalizeDept(d) === filterDeptNorm);
 
-    return matchesSearch && matchesKey && matchesClient && matchesDepartment;
+    // Status filter
+    const matchesStatus = statusFilter === "all" ||
+      (t.status || "").toLowerCase() === statusFilter.toLowerCase();
+
+    return matchesSearch && matchesKey && matchesClient && matchesDepartment && matchesStatus;
   });
 
   // Select all tasks in current filtered view
@@ -372,13 +396,8 @@ export default function Tasks() {
     }
   };
 
-  // Ensure the page shows ALL tasks by default on first load
-  useEffect(() => {
-    // explicit default: clear any project filter and load the user's full task list
-    setProjectId("");
-    refreshTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // (removed: old useEffect that called setProjectId("") on mount
+  //  which conflicted with localStorage-based navigation)
 
   /* ================= BULK ASSIGN ================= */
 
@@ -576,30 +595,74 @@ export default function Tasks() {
         <div>
           <h1 className="text-3xl font-bold">Tasks</h1>
           <p className="text-sm text-muted-foreground">
-            {projectId ? "Manage project tasks" : "View all tasks assigned to you"}
+            {projectId ? "Manage project tasks" : "View all tasks"}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          {/* Project select */}
+          {/* Project select (Searchable) */}
           <div className="flex items-center">
             <span className="text-sm font-semibold mr-3">Project</span>
-            <Select value={projectId} onValueChange={setProjectId}>
-              <SelectTrigger className="w-56 bg-white">
-                <SelectValue placeholder="Select Project" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px] overflow-y-auto">
-                {projects.length > 0 ? (
-                  projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.title}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <div className="p-2 text-xs text-muted-foreground">No projects available</div>
-                )}
-              </SelectContent>
-            </Select>
+            <Popover open={projectPopoverOpen} onOpenChange={setProjectPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={projectPopoverOpen}
+                  className="w-56 justify-between bg-white font-normal"
+                >
+                  <span className="truncate">
+                    {projectId
+                      ? projects.find((p) => String(p.id) === projectId)?.title
+                      : "All Projects"}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-0">
+                <Command>
+                  <CommandInput placeholder="Search project..." />
+                  <CommandList>
+                    <CommandEmpty>No project found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="all-projects"
+                        onSelect={() => {
+                          setProjectId("");
+                          setProjectPopoverOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            !projectId ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        All Projects
+                      </CommandItem>
+                      {projects.map((p) => (
+                        <CommandItem
+                          key={p.id}
+                          value={p.title}
+                          onSelect={() => {
+                            setProjectId(String(p.id));
+                            setProjectPopoverOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              projectId === String(p.id) ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {p.title}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Key Step select (only if project selected) */}
@@ -655,41 +718,184 @@ export default function Tasks() {
             </div>
           </div>
 
-          {/* Client Filter */}
+          {/* Client Filter (Searchable) */}
           <div className="flex items-center">
             <span className="text-sm font-semibold mr-3">Client</span>
-            <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger className="w-56 bg-white">
-                <SelectValue placeholder="All Clients" />
+            <Popover open={clientPopoverOpen} onOpenChange={setClientPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={clientPopoverOpen}
+                  className="w-56 justify-between bg-white font-normal capitalize"
+                >
+                  <span className="truncate">
+                    {clientFilter === "all" ? "All Clients" : clientFilter}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-0">
+                <Command>
+                  <CommandInput placeholder="Search client..." />
+                  <CommandList>
+                    <CommandEmpty>No client found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="all"
+                        onSelect={() => {
+                          setClientFilter("all");
+                          setClientPopoverOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            clientFilter === "all" ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        All Clients
+                      </CommandItem>
+                      {clients.map((c) => (
+                        <CommandItem
+                          key={c}
+                          value={c}
+                          onSelect={() => {
+                            setClientFilter(c.toLowerCase());
+                            setClientPopoverOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              clientFilter === c.toLowerCase() ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {c}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Department Filter (Searchable) */}
+          <div className="flex items-center">
+            <span className="text-sm font-semibold mr-3">Department</span>
+            <Popover open={deptPopoverOpen} onOpenChange={setDeptPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={deptPopoverOpen}
+                  className="w-56 justify-between bg-white font-normal"
+                >
+                  <span className="truncate">
+                    {departmentFilter === "all" ? "All Departments" : departmentFilter}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-0">
+                <Command>
+                  <CommandInput placeholder="Search dept..." />
+                  <CommandList>
+                    <CommandEmpty>No department found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="all"
+                        onSelect={() => {
+                          setDepartmentFilter("all");
+                          setDeptPopoverOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            departmentFilter === "all" ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        All Departments
+                      </CommandItem>
+                      {departments.map((d) => (
+                        <CommandItem
+                          key={d}
+                          value={d}
+                          onSelect={() => {
+                            setDepartmentFilter(d);
+                            setDeptPopoverOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              departmentFilter === d ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {d}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex items-center">
+            <span className="text-sm font-semibold mr-3">Status</span>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48 bg-white">
+                <SelectValue placeholder="All Status" />
               </SelectTrigger>
-              <SelectContent className="max-h-[300px] overflow-y-auto">
-                <SelectItem value="all">All Clients</SelectItem>
-                {clients.map((c) => (
-                  <SelectItem key={c} value={c.toLowerCase()}>
-                    {c}
-                  </SelectItem>
-                ))}
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="In Progress">In Progress</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+                <SelectItem value="On Hold">On Hold</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Department Filter */}
-          <div className="flex items-center">
-            <span className="text-sm font-semibold mr-3">Department</span>
-            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-              <SelectTrigger className="w-56 bg-white">
-                <SelectValue placeholder="All Departments" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px] overflow-y-auto">
-                <SelectItem value="all">All Departments</SelectItem>
-                {departments.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Clear Filters */}
+          {(() => {
+            const activeCount = [
+              projectId,
+              searchQuery,
+              clientFilter !== "all" ? clientFilter : "",
+              departmentFilter !== "all" ? departmentFilter : "",
+              statusFilter !== "all" ? statusFilter : "",
+              selectedKeyStepId,
+            ].filter(Boolean).length;
+            return (
+              <Button
+                variant={activeCount > 0 ? "destructive" : "outline"}
+                size="sm"
+                className="h-9 gap-1"
+                disabled={activeCount === 0}
+                onClick={() => {
+                  setProjectId("");
+                  setSearchQuery("");
+                  setClientFilter("all");
+                  setDepartmentFilter("all");
+                  setStatusFilter("all");
+                  setSelectedKeyStepId("");
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear Filters
+                {activeCount > 0 && (
+                  <span className="ml-1 rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-semibold">
+                    {activeCount}
+                  </span>
+                )}
+              </Button>
+            );
+          })()}
 
           <Button onClick={openAdd}>
             <Plus className="h-4 w-4 mr-1" /> Add Task
@@ -870,21 +1076,28 @@ export default function Tasks() {
 
                       {/* assignees */}
                       <td className="px-3 py-3 text-left border-r">
-                        <div className="text-sm text-slate-700">
+                        <div className="flex flex-wrap gap-1 overflow-hidden max-h-[3.5rem]">
                           {Array.isArray(task.taskMembers) && task.taskMembers.length > 0
-                            ? task.taskMembers.length + " member(s)"
-                            : "—"}
+                            ? task.taskMembers.map((memberId: string) => {
+                              const emp = employees.find(e => String(e.id) === String(memberId));
+                              return (
+                                <span key={memberId} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium whitespace-nowrap">
+                                  {emp?.name || memberId}
+                                </span>
+                              );
+                            })
+                            : <span className="text-sm text-slate-400">—</span>}
                         </div>
                       </td>
 
                       {/* start */}
                       <td className="px-3 py-3 text-center border-r text-sm text-slate-700">
-                        {task.startDate ? String(task.startDate) : "—"}
+                        {formatDate(task.startDate)}
                       </td>
 
                       {/* end */}
                       <td className="px-3 py-3 text-center border-r text-sm text-slate-700">
-                        {task.endDate ? String(task.endDate) : "—"}
+                        {formatDate(task.endDate)}
                       </td>
 
                       {/* status */}
@@ -939,22 +1152,94 @@ export default function Tasks() {
                     </tr>
 
                     {/* expanded row */}
-                    {isExpanded && (
-                      <tr className="bg-slate-50 border-b">
-                        <td colSpan={10} className="px-4 py-4">
-                          <div className="text-sm text-slate-700">
-                            <div className="font-semibold mb-2">Details</div>
-                            <div><span className="font-medium">Status:</span> {task.status || "—"}</div>
-                            <div><span className="font-medium">Priority:</span> {task.priority || "—"}</div>
-                            <div><span className="font-medium">Subtasks:</span> {task.subtasks?.length || 0}</div>
-                            {task.description ? (
-                              <div className="mt-2">
-                                <span className="font-medium">Description:</span> {task.description}
+                    {isExpanded && (() => {
+                      const taskProject = projects.find(p => String(p.id) === String(task.projectId));
+                      return (
+                        <tr className="bg-blue-50/40 border-b border-blue-100">
+                          <td colSpan={10} className="px-6 py-5">
+                            {/* Project Banner */}
+                            <div className="flex items-center gap-3 mb-5 pb-3 border-b border-blue-200/60">
+                              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white text-xs font-bold flex-shrink-0">
+                                {(taskProject?.title || "?").charAt(0).toUpperCase()}
                               </div>
-                            ) : null}
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 leading-none mb-0.5">Project</p>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {taskProject?.title || <span className="text-slate-400 italic">Unknown Project</span>}
+                                </p>
+                              </div>
+                              {taskProject?.clientName && (
+                                <div className="ml-auto">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 leading-none mb-0.5">Client</p>
+                                  <p className="text-sm font-medium text-slate-700">{taskProject.clientName}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Detail grid — uniform 4-col layout */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-4 mb-4">
+                              {/* Status */}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Status</p>
+                                <div className="mt-0.5"><StatusBadge status={task.status} /></div>
+                              </div>
+
+                              {/* Priority */}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Priority</p>
+                                <div className="mt-0.5"><PriorityBadge priority={task.priority} /></div>
+                              </div>
+
+                              {/* Start Date */}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Start Date</p>
+                                <p className="text-sm text-slate-700 mt-0.5">{formatDate(task.startDate)}</p>
+                              </div>
+
+                              {/* End Date */}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">End Date</p>
+                                <p className="text-sm text-slate-700 mt-0.5">{formatDate(task.endDate)}</p>
+                              </div>
+
+                              {/* Subtask Count */}
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Subtasks</p>
+                                <p className="text-sm font-medium text-slate-800 mt-0.5">{task.subtasks?.length || 0}</p>
+                              </div>
+
+                              {/* Assignees */}
+                              <div className="min-w-0 col-span-2 md:col-span-3">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Assignees</p>
+                                {Array.isArray(task.taskMembers) && task.taskMembers.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1.5 mt-0.5">
+                                    {task.taskMembers.map((memberId: string) => {
+                                      const emp = employees.find(e => String(e.id) === String(memberId));
+                                      return (
+                                        <span key={memberId} className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-xs font-medium">
+                                          {emp?.name || memberId}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-slate-400 italic mt-0.5">No assignees</p>
+                                )}
+                              </div>
+
+                              {/* Description */}
+                              {task.description && (
+                                <div className="col-span-2 md:col-span-4 min-w-0">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Description</p>
+                                  <p className="text-sm text-slate-700 leading-relaxed mt-0.5">{task.description}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Subtasks list */}
                             {Array.isArray(task.subtasks) && task.subtasks.length > 0 && (
-                              <div className="mt-4">
-                                <div className="font-medium mb-2">Subtasks List</div>
+                              <div className="mt-4 pt-3 border-t border-blue-200/60">
+                                <div className="font-medium mb-2 text-slate-800">Subtasks List</div>
 
                                 {/* tree-style subtasks */}
                                 <ul className="pl-4 space-y-3">
@@ -962,7 +1247,7 @@ export default function Tasks() {
                                     const numbering = `${taskIndex + 1}.${idx + 1}`;
                                     return (
                                       <li key={subtask.id || idx} className="flex gap-3 items-start">
-                                        <div className="w-6 flex items-center justify-center">
+                                        <div className="w-6 flex items-center justify-center flex-shrink-0">
                                           <button
                                             onClick={() => toggleSubtaskCompletion(task.id, String(subtask.id), !!subtask.isCompleted)}
                                             className="p-0"
@@ -976,14 +1261,14 @@ export default function Tasks() {
                                           </button>
                                         </div>
 
-                                        <div className="flex-1">
+                                        <div className="flex-1 min-w-0">
                                           <div className="flex items-center justify-between gap-4">
-                                            <div>
+                                            <div className="min-w-0">
                                               <span className={`font-semibold ${subtask.isCompleted ? 'line-through text-slate-400' : ''}`}>{`${numbering}: ${subtask.title}`}</span>
                                             </div>
-                                            <div className="text-xs text-slate-500 whitespace-nowrap">
-                                              <span className="mr-3">Start: {subtask.startDate || "—"}</span>
-                                              <span className="mr-3">End: {subtask.endDate || "—"}</span>
+                                            <div className="text-xs text-slate-500 whitespace-nowrap flex-shrink-0">
+                                              <span className="mr-3">Start: {formatDate(subtask.startDate)}</span>
+                                              <span className="mr-3">End: {formatDate(subtask.endDate)}</span>
                                               <span>Status: {subtask.isCompleted ? "Completed" : "Pending"}</span>
                                             </div>
                                           </div>
@@ -993,7 +1278,7 @@ export default function Tasks() {
                                         </div>
 
                                         {/* complete toggle (checkbox kept for accessibility) */}
-                                        <div className="flex items-center">
+                                        <div className="flex items-center flex-shrink-0">
                                           <input
                                             type="checkbox"
                                             checked={!!subtask.isCompleted}
@@ -1071,10 +1356,11 @@ export default function Tasks() {
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
+                          </td>
+                        </tr>
+                      );
+                    })()}
+
                   </Fragment>
                 );
               })
@@ -1084,7 +1370,7 @@ export default function Tasks() {
       </div>
 
       {/* DELETE DIALOG */}
-      <Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
+      < Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Task</DialogTitle>
@@ -1101,10 +1387,10 @@ export default function Tasks() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* QUICK ADD TASK DIALOG */}
-      <Dialog open={quickAddTaskOpen} onOpenChange={setQuickAddTaskOpen}>
+      < Dialog open={quickAddTaskOpen} onOpenChange={setQuickAddTaskOpen} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Quick Add Task</DialogTitle>
@@ -1132,10 +1418,10 @@ export default function Tasks() {
             <Button onClick={handleQuickAddTask}>Create Task</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* QUICK ADD SUBTASK DIALOG (kept, even if not triggered here) */}
-      <Dialog open={quickAddSubtaskOpen} onOpenChange={setQuickAddSubtaskOpen}>
+      < Dialog open={quickAddSubtaskOpen} onOpenChange={setQuickAddSubtaskOpen} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Quick Add Subtask</DialogTitle>
@@ -1163,10 +1449,10 @@ export default function Tasks() {
             <Button onClick={handleQuickAddSubtask}>Create Subtask</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* CLONE TASK DIALOG */}
-      <Dialog open={cloneTaskOpen} onOpenChange={setCloneTaskOpen}>
+      < Dialog open={cloneTaskOpen} onOpenChange={setCloneTaskOpen} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Clone Task</DialogTitle>
@@ -1199,10 +1485,10 @@ export default function Tasks() {
             <Button onClick={handleCloneTask}>Clone Task</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* CLONE SUBTASK DIALOG */}
-      <Dialog open={cloneSubtaskOpen} onOpenChange={setCloneSubtaskOpen}>
+      < Dialog open={cloneSubtaskOpen} onOpenChange={setCloneSubtaskOpen} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Clone Subtask</DialogTitle>
@@ -1231,7 +1517,7 @@ export default function Tasks() {
             <Button onClick={handleCloneSubtask}>Clone Subtask</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </div>
+      </Dialog >
+    </div >
   );
 }

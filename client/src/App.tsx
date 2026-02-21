@@ -32,15 +32,16 @@ function ProtectedRoute({
 }: {
   component: React.ComponentType;
 }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    if (!user) {
+    if (!isLoading && !user) {
       setLocation("/login");
     }
-  }, [user, setLocation]);
+  }, [user, isLoading, setLocation]);
 
+  if (isLoading) return null;
   if (!user) return null;
 
   return (
@@ -119,15 +120,19 @@ function ProtectedRouter() {
 /* ---------------- APP ROUTER (wrapped by AuthProvider) ---------------- */
 
 function AppRouter() {
-  const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const { user, isLoading } = useAuth();
 
-  // If there is no token stored, ensure the app redirects to /login immediately
-  // so users opening the app directly see the login screen first.
-  useEffect(() => {
-    const token = localStorage.getItem("knockturn_token");
-    if (!token) setLocation("/login");
-  }, [setLocation]);
+  // While restoring the session, show nothing (avoids flash-redirect to login)
+  if (isLoading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "hsl(var(--background))" }}>
+        <div style={{ textAlign: "center", color: "hsl(var(--muted-foreground))" }}>
+          <div style={{ width: 40, height: 40, border: "3px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+          <p style={{ fontSize: 14 }}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (

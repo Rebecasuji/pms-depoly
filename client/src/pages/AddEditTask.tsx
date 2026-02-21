@@ -54,8 +54,6 @@ export default function AddEditTask() {
     priority: "medium" as "low" | "medium" | "high",
     assignerId: "",
     taskMembers: [] as string[],
-    subtaskStartDate: "",
-    subtaskEndDate: "",
   });
 
   // When creating a new task, default assigner to current user's employee id
@@ -133,8 +131,6 @@ export default function AddEditTask() {
           priority: task.priority || "medium",
           assignerId: String(task.assignerId || ""),
           taskMembers: task.taskMembers || [],
-          subtaskStartDate: "",
-          subtaskEndDate: "",
         });
         setSubtasks(Array.isArray(task.subtasks) ? task.subtasks : []);
       })
@@ -179,7 +175,7 @@ export default function AddEditTask() {
 
   const addSubtask = () => {
     setSubtasks((s) => [
-      { id: undefined, title: "", description: "", isCompleted: false, assignedTo: [] as string[], startDate: form.subtaskStartDate || "", endDate: form.subtaskEndDate || "" },
+      { id: undefined, title: "", description: "", isCompleted: false, assignedTo: [] as string[] },
       ...s,
     ]);
   };
@@ -464,27 +460,6 @@ export default function AddEditTask() {
             </div>
           </div>
 
-          {/* Subtask Start Date */}
-          <div>
-            <Label className="text-sm font-semibold mb-2 block">Subtask Start Date</Label>
-            <Input
-              type="date"
-              value={form.subtaskStartDate}
-              onChange={(e) => setForm((f) => ({ ...f, subtaskStartDate: e.target.value }))}
-              className="h-10"
-            />
-          </div>
-
-          {/* Subtask End Date */}
-          <div>
-            <Label className="text-sm font-semibold mb-2 block">Subtask End Date</Label>
-            <Input
-              type="date"
-              value={form.subtaskEndDate}
-              onChange={(e) => setForm((f) => ({ ...f, subtaskEndDate: e.target.value }))}
-              className="h-10"
-            />
-          </div>
 
           {/* Status & Priority */}
           <div className="grid grid-cols-2 gap-6">
@@ -567,26 +542,7 @@ export default function AddEditTask() {
                   className="h-8 text-xs"
                 />
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-xs text-slate-600">Start Date</Label>
-                    <Input
-                      type="date"
-                      value={(st as any).startDate || ""}
-                      onChange={(e) => updateSubtask(i, "startDate", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-xs text-slate-600">End Date</Label>
-                    <Input
-                      type="date"
-                      value={(st as any).endDate || ""}
-                      onChange={(e) => updateSubtask(i, "endDate", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
+                <div className="grid grid-cols-1 gap-3">
 
                   <div>
                     <Select

@@ -67,6 +67,7 @@ type Task = {
 };
 import { useAuth } from "@/components/Layout";
 import { apiFetch } from "@/lib/apiClient";
+import { formatDate } from "@/lib/utils";
 
 export default function Projects() {
   const { toast } = useToast();
@@ -98,6 +99,7 @@ export default function Projects() {
     department: [] as string[],
     clientName: "",
     description: "",
+    company: "",
     startDate: "",
     endDate: "",
     progress: 0,
@@ -293,8 +295,8 @@ export default function Projects() {
       projectCode: "",
       department: [],
       clientName: "",
-      company: "",
       description: "",
+      company: "",
       startDate: "",
       endDate: "",
       progress: 0,
@@ -340,6 +342,7 @@ export default function Projects() {
       department: project.department ?? [],
       clientName: project.clientName || "",
       description: project.description || "",
+      company: project.company || "",
       startDate: project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "",
       endDate: project.endDate ? new Date(project.endDate).toISOString().split("T")[0] : "",
       progress: project.progress || 0,
@@ -435,6 +438,7 @@ export default function Projects() {
         department: [],
         clientName: "",
         description: "",
+        company: "",
         startDate: "",
         endDate: "",
         progress: 0,
@@ -582,18 +586,7 @@ export default function Projects() {
 
   const filteredSortedDepartments = Object.keys(filteredEmployeesByDepartment).sort();
 
-  const formatDateDisplay = (d: string | undefined | null) => {
-    if (!d) return "Not set";
-    try {
-      const dt = new Date(d);
-      if (isNaN(dt.getTime())) return d;
-      const dd = String(dt.getDate()).padStart(2, "0");
-      const mon = dt.toLocaleString("en-US", { month: "short" });
-      return `${dd}-${mon}-${dt.getFullYear()}`;
-    } catch {
-      return d;
-    }
-  };
+  // Removed formatDateDisplay in favor of centralized formatDate from @/lib/utils
 
   // Apply sorting to filtered projects
   const sortedProjects = [...filteredProjects].sort((a, b) => {
@@ -1094,8 +1087,8 @@ export default function Projects() {
                       </div>
                       <div className="flex items-center gap-6">
                         <div className="text-sm text-muted-foreground">{employees.find(e => e.id === project.createdByEmployeeId)?.name || "-"}</div>
-                        <div className="text-sm text-muted-foreground">{formatDateDisplay(project.createdAt)}</div>
-                        <div className="text-sm text-muted-foreground">{project.endDate ? formatDateDisplay(project.endDate) : "Not set"}</div>
+                        <div className="text-sm text-muted-foreground">{formatDate(project.createdAt)}</div>
+                        <div className="text-sm text-muted-foreground">{project.endDate ? formatDate(project.endDate) : "Not set"}</div>
                         {/* Show keystep/task counts only */}
                         <div className="flex items-center gap-2 ml-4">
                           <Badge variant="outline" className="text-xs">Key Steps: {keystepCount}</Badge>
@@ -1140,11 +1133,11 @@ export default function Projects() {
                             </div>
                             <div>
                               <p className="text-muted-foreground text-xs uppercase font-semibold">Start Date</p>
-                              <p className="font-medium">{project.startDate ? new Date(project.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                              <p className="font-medium">{formatDate(project.startDate)}</p>
                             </div>
                             <div>
                               <p className="text-muted-foreground text-xs uppercase font-semibold">End Date</p>
-                              <p className="font-medium">{project.endDate ? new Date(project.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Not set"}</p>
+                              <p className="font-medium">{formatDate(project.endDate)}</p>
                             </div>
                           </div>
                         </div>
@@ -1181,8 +1174,8 @@ export default function Projects() {
                                         {subtasksForProject.map(st => (
                                           <tr key={st.id} className="border-b last:border-b-0">
                                             <td className="px-2 py-1 whitespace-nowrap">{st.title || st.name || st.subtaskName || st.id}</td>
-                                            <td className="px-2 py-1 whitespace-nowrap">{st.startDate ? new Date(st.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</td>
-                                            <td className="px-2 py-1 whitespace-nowrap">{st.endDate ? new Date(st.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</td>
+                                            <td className="px-2 py-1 whitespace-nowrap">{formatDate(st.startDate)}</td>
+                                            <td className="px-2 py-1 whitespace-nowrap">{formatDate(st.endDate)}</td>
                                             <td className="px-2 py-1 whitespace-nowrap">{st.isCompleted ? 'Completed' : st.status || 'In Progress'}</td>
                                             <td className="px-2 py-1">
                                               <Button
