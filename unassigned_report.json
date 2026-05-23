@@ -1,0 +1,291 @@
+{
+  "unassignedProjects": [
+    "Hiring for CTI 2026",
+    "Pay sheet",
+    "Timesheet Validation",
+    "False Ceiling at Hexaveristy",
+    "Time strap Upgrade",
+    "BLE BEACONS",
+    "EB3 LIFT GLASS REPLACEMENT",
+    "Hexaversity Lift renovation",
+    "Internal Discussion",
+    "Hiring",
+    "Repro Project",
+    "Repro Project",
+    "YUVARAJ CABIN",
+    "False Ceiling Revamp - Wood",
+    "MD Cabin and Other cabin Upgrade - Sysarc",
+    "Reception Renovation at Crescent College",
+    "AUTOMATED TEST PURCHASE",
+    "BOQ",
+    "Create Policy and Process for Exit Clearance",
+    "Facility Management vendor change",
+    "Client coordination",
+    "Property Connect",
+    "office support",
+    "LMS TEST",
+    "INDIA MART",
+    "Tech Support",
+    "Exterior Glazing",
+    "Test Project",
+    "Project management software",
+    "LMS Project",
+    "wood tile supply and laying feb month",
+    "Office Space Acquisition",
+    "Supply of Light Fitting for AI Lab",
+    "LV ODC",
+    "Talent acquisition",
+    "Operational task",
+    "Canteen Renovation",
+    "Concept Trunk Interiors",
+    "pms email integration test",
+    "CONCEPT TRUNK INTERIORS DESIGN",
+    "test purpose",
+    "id card design",
+    "Invoice Verification March2026",
+    "Restroom Cubicle",
+    "Carpay ODC",
+    "Invoice Processing & Coordination",
+    "lift lacquered glass",
+    "BOQ Products Adding",
+    "Workforce Productivity Tracking Initiative",
+    "Marble Remoal and Refixing at Phase 2",
+    "Bank Statement reconciliation",
+    "Business Development",
+    "Non Tax Bills",
+    "Restructure the policies and process",
+    "Employee Engagement Program",
+    "BOQ Products Materials Creation",
+    "HR Documentation and Policy Standardization"
+  ],
+  "unassignedTasks": [
+    {
+      "taskName": "Restriction of adding timesheet details for a project time line that is already over",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "Prepared Timestrap",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "Final Review For Approval ",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Sourcing",
+      "projectTitle": "Hiring for CTI 2026"
+    },
+    {
+      "taskName": "Final Review of BOQ",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Prepare BOQ",
+      "projectTitle": "Canteen Renovation"
+    },
+    {
+      "taskName": "Candidate Calling & Screening",
+      "projectTitle": "Hiring for CTI 2026"
+    },
+    {
+      "taskName": "Upgrade with new features",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Reset Password is not working",
+      "projectTitle": "BOQ software"
+    },
+    {
+      "taskName": "Final Review of BOQ",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Environment Setup",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Vendor & Item Master Update",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Execution",
+      "projectTitle": "EB3 LIFT GLASS REPLACEMENT"
+    },
+    {
+      "taskName": "BOQ Software Updation",
+      "projectTitle": "BOQ Management Database Updation"
+    },
+    {
+      "taskName": "Provide clone option in Key steps",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Automatic Punch in and Punch out Not functioning",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "23 Errors to be resolved",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Resend Domain Configuration",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Error Handling Enhancement",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Backend Route Update",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Reset Password UI Development",
+      "projectTitle": "BOQ"
+    },
+    {
+      "taskName": "Office Space Research & Identification",
+      "projectTitle": "Admin Activities"
+    },
+    {
+      "taskName": "Structuring & verification of vendor payment data",
+      "projectTitle": "FINANCE REPORT"
+    },
+    {
+      "taskName": "Green Fenster Client Followup",
+      "projectTitle": "Client coordination"
+    },
+    {
+      "taskName": "Deployment ",
+      "projectTitle": null
+    },
+    {
+      "taskName": "Meeting with sam sir",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "Email Integration Planning",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "Admin Email Debugging",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "Error Handling Enhancement",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "Discussion with Property Portal Representatives",
+      "projectTitle": "Property Connect"
+    },
+    {
+      "taskName": "Performance Review & Deployment Preparation",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "LinkedIn Premium Plan Research",
+      "projectTitle": "Admin Activities"
+    },
+    {
+      "taskName": "Verified the OT details before sending them to Sam Sir",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "Shine Recruitment Platform Coordination",
+      "projectTitle": "Hiring for CTI 2026"
+    },
+    {
+      "taskName": "Unolo Attendance Monitoring & Tracking",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "3D Drawing approval",
+      "projectTitle": "Canteen Renovation"
+    },
+    {
+      "taskName": "ID Card Planning & Confirmation",
+      "projectTitle": "id card design"
+    },
+    {
+      "taskName": "send Proposal to Client",
+      "projectTitle": "False Ceiling at Hexaveristy"
+    },
+    {
+      "taskName": "sdfghjk",
+      "projectTitle": null
+    },
+    {
+      "taskName": " get me pricing for Motorized Blinds",
+      "projectTitle": "MD Cabin and Other cabin Upgrade - Sysarc"
+    },
+    {
+      "taskName": "Item Master Updation",
+      "projectTitle": "BOQ Management Database Updation"
+    },
+    {
+      "taskName": "Data Rectification",
+      "projectTitle": "BOQ Management Database Updation"
+    },
+    {
+      "taskName": "Repro Task",
+      "projectTitle": "Repro Project"
+    },
+    {
+      "taskName": "Repro Task",
+      "projectTitle": "Repro Project"
+    },
+    {
+      "taskName": "demo",
+      "projectTitle": null
+    },
+    {
+      "taskName": "gathering the changes for updating pms and rectifying the errors ",
+      "projectTitle": "Meeting with sam sir"
+    },
+    {
+      "taskName": "Warranty Certificate Preparation & Issuance",
+      "projectTitle": "Documentation"
+    },
+    {
+      "taskName": "Cloning of the Timestrap database (including schema and data) to a new environment.",
+      "projectTitle": "Time strap Upgrade"
+    },
+    {
+      "taskName": "Followed up with Sam Sir regarding AMC, and obtained a new device quotation from other vendors.",
+      "projectTitle": "Pay sheet"
+    },
+    {
+      "taskName": "Retry & Fallback Logic",
+      "projectTitle": "pms  integration"
+    },
+    {
+      "taskName": "BOQ updates and debuggging",
+      "projectTitle": "BOQ software"
+    },
+    {
+      "taskName": "Cloning of database(tables and datas)",
+      "projectTitle": "BOQ software"
+    },
+    {
+      "taskName": "iiii",
+      "projectTitle": "Canteen Renovation"
+    },
+    {
+      "taskName": "demo",
+      "projectTitle": "Project management software"
+    },
+    {
+      "taskName": "kk",
+      "projectTitle": "BOQ Products Adding"
+    },
+    {
+      "taskName": "kkk",
+      "projectTitle": "BOQ Products Adding"
+    },
+    {
+      "taskName": "BOQ Software Demo Session Participation",
+      "projectTitle": "Demo session"
+    }
+  ]
+}

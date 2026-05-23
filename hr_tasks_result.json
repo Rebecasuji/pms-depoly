@@ -1,0 +1,79 @@
+{
+  "employees": [
+    {
+      "id": "03ecbdf8-6b17-4fc5-b191-6f38aac45c0e",
+      "name": "KAALIPUSHPA R"
+    },
+    {
+      "id": "dcf8f955-b5fe-4225-a4d2-b8aedf61ba2f",
+      "name": "P PUSHPA"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "493bf0e1-17fa-4cc3-a349-c7a99472c483",
+      "task_name": "Prepared Timestrap",
+      "project_title": "Pay sheet"
+    },
+    {
+      "id": "8f1aa438-ebad-459e-8301-f30667642a50",
+      "task_name": "Sourcing",
+      "project_title": "Hiring for CTI 2026"
+    },
+    {
+      "id": "9fbf7dd1-a7d8-4ecf-bd73-b09d21bd43ae",
+      "task_name": "Candidate Calling & Screening",
+      "project_title": "Hiring for CTI 2026"
+    },
+    {
+      "id": "b918694a-f213-4bb1-943c-b55342e9be5a",
+      "task_name": "Automatic Punch in and Punch out Not functioning",
+      "project_title": "Pay sheet"
+    },
+    {
+      "id": "874bd103-f198-4cd5-a1fa-5122c1b177e4",
+      "task_name": "Green Fenster Client Followup",
+      "project_title": "Client coordination"
+    },
+    {
+      "id": "ef2b883e-29b0-4a01-86f4-fb166bc1c37c",
+      "task_name": "Office Space Research & Identification",
+      "project_title": "Admin Activities"
+    },
+    {
+      "id": "e05aa523-cef4-496f-af54-7fcba0b27a2e",
+      "task_name": "Unolo Attendance Monitoring & Tracking",
+      "project_title": "Pay sheet"
+    },
+    {
+      "id": "a9e6406b-e4a7-47e0-95b1-d31d881377de",
+      "task_name": "Meeting with sam sir",
+      "project_title": "Pay sheet"
+    },
+    {
+      "id": "ba020dac-03e3-47d9-97c9-24e872893f34",
+      "task_name": "Discussion with Property Portal Representatives",
+      "project_title": "Property Connect"
+    },
+    {
+      "id": "536ef685-9fb5-44f8-8ac4-94310466c06b",
+      "task_name": "LinkedIn Premium Plan Research",
+      "project_title": "Admin Activities"
+    },
+    {
+      "id": "78bf6d3d-71bf-4605-bcf8-52637fd5c3bc",
+      "task_name": "Verified the OT details before sending them to Sam Sir",
+      "project_title": "Pay sheet"
+    },
+    {
+      "id": "a05789a5-1a79-47b9-9434-b03b55c31de7",
+      "task_name": "Shine Recruitment Platform Coordination",
+      "project_title": "Hiring for CTI 2026"
+    },
+    {
+      "id": "5e885cf4-ca65-40ed-bd23-faeca9e9ded7",
+      "task_name": "Followed up with Sam Sir regarding AMC, and obtained a new device quotation from other vendors.",
+      "project_title": "Pay sheet"
+    }
+  ]
+}

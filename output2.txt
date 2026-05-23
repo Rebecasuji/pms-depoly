@@ -1,0 +1,26 @@
+Projects:
+[
+  {
+    "id": "0984d6a7-6f6b-488d-be66-1315c0337454",
+    "title": "test purpose"
+  }
+]
+Keysteps:
+[
+  {
+    "id": "9be2d1ab-1bfd-4c96-afd6-263e0925cdc7",
+    "title": "nn",
+    "header": "sadfg",
+    "parent_key_step_id": null,
+    "status": "pending"
+  },
+  {
+    "id": "a55c85f4-4c25-43e7-b9f5-77fa0ea12f8f",
+    "title": "sss",
+    "header": "sadfg",
+    "parent_key_step_id": null,
+    "status": "pending"
+  }
+]
+Tasks:
+[]
